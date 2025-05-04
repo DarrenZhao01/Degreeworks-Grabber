@@ -4,8 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get references to DOM elements
     const courseForm = document.getElementById('courseForm');
     const progressContainer = document.querySelector('.progress-container');
-    const progressBar = progressContainer?.querySelector('.progress-bar'); // Use optional chaining
-    const progressText = progressContainer?.querySelector('.progress-text'); // Use optional chaining
+    const progressBar = progressContainer?.querySelector('.progress-bar');
+    const progressText = progressContainer?.querySelector('.progress-text');
+    const progressLog = document.getElementById('progressLog'); // Get the new log element
     const resultsArea = document.getElementById('resultsArea');
     const alertArea = document.getElementById('alertArea');
     const yearInput = document.getElementById('year');
@@ -16,27 +17,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const expandAllBtn = document.getElementById('expandAllBtn');
     const collapseAllBtn = document.getElementById('collapseAllBtn');
 
-    // --- Input Validation and Initialization ---
+    let eventSource = null; // Variable to hold the EventSource connection
 
-    // Set default year to current year only if the element exists
+    // --- Input Validation and Initialization ---
     if (yearInput) {
         yearInput.value = new Date().getFullYear();
     } else {
         console.error("Year input element not found.");
     }
 
-    // --- Utility Functions ---
+    // --- Utility Functions (Mostly Unchanged) ---
 
-    /**
-     * Creates and displays a Bootstrap alert message.
-     * @param {string} message - The message to display.
-     * @param {string} type - The alert type (e.g., 'danger', 'success', 'warning', 'info'). Defaults to 'danger'.
-     */
     function showAlert(message, type = 'danger') {
-        if (!alertArea) {
-            console.error("Alert area element not found.");
-            return;
-        }
+        if (!alertArea) { console.error("Alert area element not found."); return; }
         alertArea.innerHTML = `
             <div class="alert alert-${type} alert-dismissible fade show" role="alert">
                 ${message}
@@ -45,41 +38,23 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     }
 
-    /**
-     * Clears any existing alert messages.
-     */
     function clearAlert() {
-        if (alertArea) {
-            alertArea.innerHTML = '';
-        }
+        if (alertArea) alertArea.innerHTML = '';
     }
 
-    /**
-     * Gets a CSS class for styling the status badge based on the status text.
-     * @param {string | null | undefined} status - The section status text (e.g., 'Open', 'Waitl', 'FULL').
-     * @returns {string} The CSS class for the badge.
-     */
     function getStatusBadgeClass(status) {
-        const lowerStatus = status ? status.toLowerCase() : 'unknown'; // Handle null/undefined status
+        const lowerStatus = status ? status.toLowerCase() : 'unknown';
         if (lowerStatus === 'open') return 'status-open';
         if (lowerStatus === 'waitl') return 'status-waitl';
         if (lowerStatus === 'full') return 'status-full';
         if (lowerStatus === 'newonly') return 'status-newonly';
-        return 'status-unknown'; // Default for 'Unknown' or other statuses
+        return 'status-unknown';
     }
 
-
-    /**
-     * Creates an HTML table row for a section.
-     * @param {object} section - The section data object.
-     * @returns {HTMLTableRowElement} The created table row element.
-     */
     function createSectionRow(section) {
         const row = document.createElement('tr');
-        // Ensure section is valid before accessing properties
         const safeSection = section || {};
         const statusBadgeClass = getStatusBadgeClass(safeSection.status);
-        // Add data-label attributes for responsive view
         row.innerHTML = `
             <td data-label="Code">${safeSection.code || 'N/A'}</td>
             <td data-label="Instructors">${safeSection.instructors || 'TBA'}</td>
@@ -90,156 +65,88 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
-    /**
-     * Creates an HTML card element to display a course and its sections, grouped by type.
-     * This card is collapsible and styled based on availability.
-     * @param {object} course - The course data object, including grouped sections.
-     * @param {string} idPrefix - A unique prefix for element IDs within this card.
-     * @returns {HTMLDivElement | null} The created card element, or null if course is invalid.
-     */
     function createCourseCard(course, idPrefix) {
-        // Basic validation for the course object
         if (!course || typeof course !== 'object' || !idPrefix) {
              console.error("Invalid input to createCourseCard:", course, idPrefix);
-             return null; // Return null if input is invalid
+             return null;
         }
-
         const courseCard = document.createElement('div');
-        const isAvailable = isCourseAvailable(course); // Check availability
-        courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`; // Add class if available
-
-        // Generate unique IDs for collapse elements
+        const isAvailable = isCourseAvailable(course);
+        courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`;
         const collapseId = `${idPrefix}-collapse`;
         const headerId = `${idPrefix}-header`;
-
-        // Card Header (Clickable Trigger)
         const cardHeader = document.createElement('div');
-        cardHeader.className = 'card-header collapsed'; // Start collapsed
+        cardHeader.className = 'card-header collapsed';
         cardHeader.setAttribute('data-bs-toggle', 'collapse');
         cardHeader.setAttribute('data-bs-target', `#${collapseId}`);
-        cardHeader.setAttribute('aria-expanded', 'false'); // Initially collapsed
+        cardHeader.setAttribute('aria-expanded', 'false');
         cardHeader.setAttribute('aria-controls', collapseId);
         cardHeader.id = headerId;
-        // Add course name and the collapse arrow icon
-        cardHeader.innerHTML = `
-            ${course.course || 'Unknown Course'}
-            <i class="fas fa-chevron-down collapse-arrow"></i>
-        `;
+        cardHeader.innerHTML = `${course.course || 'Unknown Course'} <i class="fas fa-chevron-down collapse-arrow"></i>`;
         courseCard.appendChild(cardHeader);
-
-        // Collapsible Wrapper Div for Card Body Content
         const collapseWrapper = document.createElement('div');
         collapseWrapper.id = collapseId;
-        collapseWrapper.className = 'collapse card-body-wrapper'; // Add 'collapse', remove 'show' to start collapsed
+        collapseWrapper.className = 'collapse card-body-wrapper';
         collapseWrapper.setAttribute('aria-labelledby', headerId);
-
-        // Inner Card Body (holds the actual content: tables, messages)
         const cardBody = document.createElement('div');
-        cardBody.className = 'card-body'; // Keep card-body class for structure if needed
-
-        // Check for processing errors specific to this course
+        cardBody.className = 'card-body';
         if (course.error) {
              const errorMsg = document.createElement('p');
-             errorMsg.className = 'error-message';
-             errorMsg.textContent = `Error: ${course.error}`;
+             errorMsg.className = 'error-message'; errorMsg.textContent = `Error: ${course.error}`;
              cardBody.appendChild(errorMsg);
-        }
-        // Check if there are any sections at all
-        else if (!course.sections || typeof course.sections !== 'object' || Object.keys(course.sections).length === 0) {
+        } else if (!course.sections || typeof course.sections !== 'object' || Object.keys(course.sections).length === 0) {
             const noSectionsMsg = document.createElement('p');
-            noSectionsMsg.className = 'no-sections-message';
-            noSectionsMsg.textContent = 'No sections found for this term.';
+            noSectionsMsg.className = 'no-sections-message'; noSectionsMsg.textContent = 'No sections found for this term.';
             cardBody.appendChild(noSectionsMsg);
         } else {
-            // Get section types and sort them (e.g., Lec, Dis, Lab)
-            const sectionTypes = Object.keys(course.sections).sort((a, b) => {
+            const sectionTypes = Object.keys(course.sections).sort((a, b) => { /* ... sorting logic ... */
                 const order = { 'Lec': 1, 'Dis': 2, 'Lab': 3, 'Sem': 4, 'Tut': 5, 'Qiz': 6, 'Fld': 7, 'Res': 8, 'Stu': 9, 'Act': 10, 'Col': 11 };
-                const orderA = order[a] || 99;
-                const orderB = order[b] || 99;
-                if (orderA !== orderB) return orderA - orderB;
-                return a.localeCompare(b);
+                const orderA = order[a] || 99; const orderB = order[b] || 99;
+                if (orderA !== orderB) return orderA - orderB; return a.localeCompare(b);
             });
-
-            // Iterate through each section type
             sectionTypes.forEach(type => {
                 const sectionsOfType = course.sections[type];
-                // Ensure sectionsOfType is an array and has content
                 if (!Array.isArray(sectionsOfType) || sectionsOfType.length === 0) return;
-
                 const typeHeader = document.createElement('h6');
                 typeHeader.className = 'section-type-header';
-                const typeNameMap = { 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
-                typeHeader.textContent = typeNameMap[type] || type;
-                cardBody.appendChild(typeHeader);
-
-                const table = document.createElement('table');
-                table.className = 'table table-hover table-sm';
-                const thead = document.createElement('thead');
-                thead.innerHTML = `
-                    <tr>
-                        <th>Code</th>
-                        <th>Instructors</th>
-                        <th>Status</th>
-                        <th>Meetings</th>
-                        <th>Units</th>
-                    </tr>
-                `;
-                table.appendChild(thead);
-
-                const tbody = document.createElement('tbody');
-                sectionsOfType.forEach(section => {
-                    // Ensure section is valid before creating row
-                    if (section && typeof section === 'object') {
-                         tbody.appendChild(createSectionRow(section));
-                    }
-                });
-                table.appendChild(tbody);
-                cardBody.appendChild(table);
+                const typeNameMap = { /* ... type names ... */ 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
+                typeHeader.textContent = typeNameMap[type] || type; cardBody.appendChild(typeHeader);
+                const table = document.createElement('table'); table.className = 'table table-hover table-sm';
+                const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
+                table.appendChild(thead); const tbody = document.createElement('tbody');
+                sectionsOfType.forEach(section => { if (section && typeof section === 'object') tbody.appendChild(createSectionRow(section)); });
+                table.appendChild(tbody); cardBody.appendChild(table);
             });
         }
-
-        collapseWrapper.appendChild(cardBody);
-        courseCard.appendChild(collapseWrapper);
-
+        collapseWrapper.appendChild(cardBody); courseCard.appendChild(collapseWrapper);
         return courseCard;
     }
 
-    /**
-     * Checks if a course has at least one section with 'Open' status.
-     * @param {object | null | undefined} course - The course data object.
-     * @returns {boolean} True if at least one section is open, false otherwise.
-     */
     function isCourseAvailable(course) {
-        // Check if course and sections object exist and are not empty
-        if (!course || typeof course !== 'object' || !course.sections || typeof course.sections !== 'object' || Object.keys(course.sections).length === 0) {
-            return false; // No sections means unavailable
-        }
-        // Iterate through each section type (Lec, Dis, etc.)
+        if (!course || typeof course !== 'object' || !course.sections || typeof course.sections !== 'object' || Object.keys(course.sections).length === 0) return false;
         for (const type in course.sections) {
-            // Ensure the value associated with the type is an array
             if (Array.isArray(course.sections[type])) {
-                // Iterate through sections within that type
                 for (const section of course.sections[type]) {
-                    // Check if section exists and has an 'Open' status (case-insensitive)
-                    if (section && typeof section === 'object' && section.status && typeof section.status === 'string' && section.status.toLowerCase() === 'open') {
-                        return true; // Found an open section
-                    }
+                    if (section && typeof section === 'object' && section.status && typeof section.status === 'string' && section.status.toLowerCase() === 'open') return true;
                 }
             }
         }
-        return false; // No open sections found
+        return false;
     }
 
-
     /**
-     * Displays the fetched and processed course results in the appropriate filter tabs.
-     * @param {Array<object> | null | undefined} results - An array of course objects.
+     * Displays the FINAL course results in the appropriate filter tabs.
+     * Clears the progress log.
+     * @param {Array<object> | null | undefined} finalResults - An array of course objects.
      */
-    function displayResults(results) {
+    function displayFinalResults(finalResults) {
+        // Clear the progress log now that results are final
+        if (progressLog) progressLog.innerHTML = '';
+        if (progressContainer) progressContainer.classList.add('d-none'); // Ensure progress bar is hidden
+
         // Ensure all pane elements exist
         if (!allCoursesPane || !availableCoursesPane || !unavailableCoursesPane || !resultsArea) {
-             console.error("One or more result pane elements not found.");
-             if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress if panes missing
+             console.error("One or more result pane elements not found for final display.");
              return;
         }
 
@@ -247,79 +154,49 @@ document.addEventListener('DOMContentLoaded', () => {
         allCoursesPane.innerHTML = '';
         availableCoursesPane.innerHTML = '';
         unavailableCoursesPane.innerHTML = '';
-        if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress bar
 
         const defaultEmptyMessage = '<p class="empty-tab-message">No courses found matching your criteria.</p>';
 
-        // Handle cases where results are null, undefined, or not an array
-        if (!Array.isArray(results) || results.length === 0) {
+        if (!Array.isArray(finalResults) || finalResults.length === 0) {
             allCoursesPane.innerHTML = defaultEmptyMessage;
             availableCoursesPane.innerHTML = defaultEmptyMessage;
             unavailableCoursesPane.innerHTML = defaultEmptyMessage;
-            resultsArea.classList.remove('d-none'); // Show the results area (with tabs)
-            // Ensure 'Available' tab is active (even if empty)
-            const availableTabElement = document.getElementById('available-tab');
-            if (availableTabElement && typeof bootstrap !== 'undefined') {
-                 bootstrap.Tab.getOrCreateInstance(availableTabElement).show();
-            }
-            return;
-        }
+        } else {
+            let availableCount = 0;
+            let unavailableCount = 0;
 
-        let availableCount = 0;
-        let unavailableCount = 0;
+            finalResults.forEach((course, index) => {
+                const allIdPrefix = `all-${index}`;
+                const availIdPrefix = `avail-${index}`;
+                const unavailIdPrefix = `unavail-${index}`;
 
-        // Create and append cards to the correct panes
-        results.forEach((course, index) => {
-            // Generate unique ID prefixes for each card instance across tabs
-            const allIdPrefix = `all-${index}`;
-            const availIdPrefix = `avail-${index}`;
-            const unavailIdPrefix = `unavail-${index}`;
-
-            // Create cards only if course data is valid
-            const allCard = createCourseCard(course, allIdPrefix);
-            if (allCard) {
-                 allCoursesPane.appendChild(allCard); // Append original card
-
-                 const isAvailable = isCourseAvailable(course);
-                 // Add to the specific filter tabs
-                 if (isAvailable) {
-                     const availableCard = createCourseCard(course, availIdPrefix);
-                     if(availableCard) {
-                         availableCoursesPane.appendChild(availableCard);
-                         availableCount++;
+                const allCard = createCourseCard(course, allIdPrefix);
+                if (allCard) {
+                     allCoursesPane.appendChild(allCard);
+                     const isAvailable = isCourseAvailable(course);
+                     if (isAvailable) {
+                         const availableCard = createCourseCard(course, availIdPrefix);
+                         if(availableCard) { availableCoursesPane.appendChild(availableCard); availableCount++; }
+                     } else {
+                         const unavailableCard = createCourseCard(course, unavailIdPrefix);
+                         if(unavailableCard) { unavailableCoursesPane.appendChild(unavailableCard); unavailableCount++; }
                      }
-                 } else {
-                     const unavailableCard = createCourseCard(course, unavailIdPrefix);
-                     if(unavailableCard) {
-                         unavailableCoursesPane.appendChild(unavailableCard);
-                         unavailableCount++;
-                     }
-                 }
-            } else {
-                console.warn("Skipping invalid course data:", course);
-            }
-        });
+                } else { console.warn("Skipping invalid course data in final display:", course); }
+            });
 
-         // Add messages if specific tabs are empty
-        if (availableCount === 0) {
-            availableCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with open sections found.</p>';
+            if (availableCount === 0) availableCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with open sections found.</p>';
+            if (unavailableCount === 0) unavailableCoursesPane.innerHTML = '<p class="empty-tab-message">No unavailable courses found.</p>';
+            if (allCoursesPane.childElementCount === 0) allCoursesPane.innerHTML = defaultEmptyMessage;
         }
-        if (unavailableCount === 0) {
-            unavailableCoursesPane.innerHTML = '<p class="empty-tab-message">No unavailable courses found (all found courses have open sections or no sections listed).</p>';
-        }
-         if (allCoursesPane.childElementCount === 0) { // Check if the All tab is actually empty
-             allCoursesPane.innerHTML = '<p class="empty-tab-message">No courses found matching your input.</p>';
-         }
 
-
-        // Show the results area (tabs and content)
+        // Show the results area
         resultsArea.classList.remove('d-none');
 
-         // Set the 'Available Only' tab as active by default after loading results
-         const availableTabElement = document.getElementById('available-tab');
-         if (availableTabElement && typeof bootstrap !== 'undefined') {
-              bootstrap.Tab.getOrCreateInstance(availableTabElement).show();
-         }
+        // Set the 'Available Only' tab as active
+        const availableTabElement = document.getElementById('available-tab');
+        if (availableTabElement && typeof bootstrap !== 'undefined') {
+             bootstrap.Tab.getOrCreateInstance(availableTabElement).show();
+        }
     }
 
     /**
@@ -327,55 +204,52 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} expand - True to expand, false to collapse.
      */
     function toggleAllCourses(expand) {
-        // Find the currently active tab pane
         const activePane = document.querySelector('.tab-pane.fade.show.active');
-        if (!activePane) {
-            console.warn("Could not find active tab pane for toggleAllCourses.");
-            return;
-        }
-
-        // Find all collapse content elements within the active pane
+        if (!activePane) { console.warn("Could not find active tab pane for toggleAllCourses."); return; }
         const collapseElements = activePane.querySelectorAll('.collapse.card-body-wrapper');
-
-        // Iterate and toggle each collapse instance
         collapseElements.forEach(el => {
-            // Get or create a Bootstrap Collapse instance for the element
-            // Ensure Bootstrap's JS is loaded and available
             if (typeof bootstrap !== 'undefined' && bootstrap.Collapse) {
                 const instance = bootstrap.Collapse.getOrCreateInstance(el);
-                if (expand) {
-                    instance.show();
-                } else {
-                    instance.hide();
-                }
-            } else {
-                console.error("Bootstrap Collapse component not found. Make sure Bootstrap JS is loaded.");
-            }
+                if (expand) instance.show(); else instance.hide();
+            } else { console.error("Bootstrap Collapse component not found."); }
         });
     }
 
-
     // --- Event Listeners ---
 
-    // Form Submission Listener
+    // Form Submission Listener (Now uses EventSource)
     if (courseForm) {
-        courseForm.addEventListener('submit', async (e) => {
-            e.preventDefault(); // Prevent default page reload
-            clearAlert(); // Clear previous errors
-            if(resultsArea) resultsArea.classList.add('d-none'); // Hide results until ready
+        courseForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            clearAlert();
+            if(resultsArea) resultsArea.classList.add('d-none'); // Hide previous results
+            if(progressLog) progressLog.innerHTML = ''; // Clear previous log
 
-            // Show progress indicator if elements exist
-            if (progressContainer && progressText) {
-                progressText.textContent = 'Searching... Pasting many courses may take a while.';
-                progressContainer.classList.remove('d-none');
+            // Close existing EventSource connection if any
+            if (eventSource) {
+                eventSource.close();
+                console.log("Previous EventSource closed.");
             }
+
+            // Show progress indicator
+            if (progressContainer && progressBar && progressText) {
+                progressBar.style.width = '0%'; // Reset progress bar
+                progressBar.textContent = ''; // Clear text inside bar
+                progressText.textContent = 'Initiating search...'; // Initial message
+                progressContainer.classList.remove('d-none');
+            } else {
+                 console.error("Progress bar elements not found.");
+                 showAlert("Could not initialize progress display.");
+                 return; // Don't proceed if progress elements are missing
+            }
+
 
             // Get form data
             const inputTextElement = document.getElementById('inputText');
             const quarterElement = document.getElementById('quarter');
             const formData = {
                 input_text: inputTextElement ? inputTextElement.value.trim() : '',
-                year: yearInput ? yearInput.value : '', // Use previously fetched yearInput
+                year: yearInput ? yearInput.value : '',
                 quarter: quarterElement ? quarterElement.value : ''
             };
 
@@ -391,56 +265,123 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // --- API Call ---
-            try {
-                // Send data to the backend '/process' endpoint
-                const response = await fetch('/process', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json' // Indicate expected response type
-                    },
-                    body: JSON.stringify(formData) // Convert JS object to JSON string
-                });
+            // --- Initialize EventSource ---
+            // We need to send POST data. EventSource only supports GET.
+            // Workaround: Use fetch to initiate, then handle stream? No, SSE standard is GET.
+            // Option 1: Pass data via query params (less ideal for potentially long text).
+            // Option 2: Use a library that wraps Fetch/XHR to simulate EventSource with POST.
+            // Option 3: (Simplest for now) Use GET and query parameters. Let's try this first.
+            // **Correction:** Flask can handle POST for SSE setup. The client *connects* via EventSource (GET),
+            // but the *initial* request that *triggers* the stream generation can be POST.
+            // Let's stick to the POST approach for `/stream_process` in Flask.
+            // The client side needs to initiate the POST and then somehow listen?
+            // This is where standard EventSource fails.
+            //
+            // **Revised Approach:** Use Fetch API with ReadableStream.
+            // This is more modern and handles POST body streaming.
 
-                // Check if the response status indicates success (e.g., 200-299)
+            console.log("Initiating fetch to /stream_process");
+
+            fetch('/stream_process', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream' // Important: Tell server we expect a stream
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => {
                 if (!response.ok) {
-                     // Attempt to parse error message from backend JSON response
-                     let errorMsg = `HTTP error ${response.status}: ${response.statusText}`;
-                     try {
-                         const errorData = await response.json();
-                         // Use backend error message if available
-                         if (errorData && errorData.error) {
-                             errorMsg = errorData.error;
-                         }
-                     } catch (jsonError) {
-                         // If response is not JSON or parsing fails, stick with the HTTP status text
-                         console.error("Could not parse error response JSON:", jsonError);
-                     }
-                    throw new Error(errorMsg); // Throw error to be caught below
+                    // Handle HTTP errors before trying to read stream
+                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+                }
+                if (!response.body) {
+                    throw new Error("Response doesn't contain a readable stream.");
+                }
+                console.log("Received stream response...");
+
+                // Process the readable stream
+                const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+                let accumulatedData = ''; // Buffer for incomplete messages
+
+                function processStream({ done, value }) {
+                    if (done) {
+                        console.log("Stream finished.");
+                        // Handle case where stream finishes without a 'complete' message?
+                        if(progressContainer) progressContainer.classList.add('d-none');
+                        // If no 'complete' message was received, maybe show an alert.
+                        return;
+                    }
+
+                    accumulatedData += value;
+                    // Process messages separated by double newlines (\n\n)
+                    let boundary = accumulatedData.indexOf('\n\n');
+                    while (boundary >= 0) {
+                        const message = accumulatedData.substring(0, boundary).trim();
+                        accumulatedData = accumulatedData.substring(boundary + 2); // Skip \n\n
+
+                        if (message.startsWith('data:')) {
+                            const jsonData = message.substring(5).trim(); // Remove 'data:' prefix
+                            try {
+                                const eventData = JSON.parse(jsonData);
+                                // --- Handle different event types ---
+                                if (eventData.type === 'progress') {
+                                    // Update progress bar
+                                    if(progressBar) progressBar.style.width = `${eventData.value}%`;
+                                    if(progressBar) progressBar.textContent = `${eventData.value}%`; // Optional text on bar
+                                    if(progressText) progressText.textContent = eventData.message || 'Processing...';
+                                    // Append to log immediately
+                                    if(progressLog && eventData.message) {
+                                         const logEntry = document.createElement('div');
+                                         logEntry.textContent = eventData.message;
+                                         progressLog.appendChild(logEntry);
+                                         progressLog.scrollTop = progressLog.scrollHeight; // Auto-scroll
+                                    }
+
+                                } else if (eventData.type === 'log') {
+                                    // Append log message
+                                     if(progressLog && eventData.message) {
+                                         const logEntry = document.createElement('div');
+                                         logEntry.textContent = eventData.message;
+                                         progressLog.appendChild(logEntry);
+                                         progressLog.scrollTop = progressLog.scrollHeight; // Auto-scroll
+                                     }
+                                } else if (eventData.type === 'complete') {
+                                    console.log("Received 'complete' message.");
+                                    displayFinalResults(eventData.results); // Display final results
+                                    // Stream should close automatically after this
+                                    return; // Stop processing further chunks for this branch
+                                } else if (eventData.type === 'error') {
+                                     console.error("Received error from server stream:", eventData.message);
+                                     showAlert(`Server error: ${eventData.message}`, 'danger');
+                                     if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress on error
+                                     reader.cancel(); // Attempt to cancel the stream reader
+                                     return; // Stop processing
+                                }
+                            } catch (e) {
+                                console.error("Error parsing SSE data:", e, "Raw data:", jsonData);
+                            }
+                        }
+                        boundary = accumulatedData.indexOf('\n\n'); // Look for next message
+                    }
+
+                    // Continue reading the stream
+                    return reader.read().then(processStream);
                 }
 
-                // Parse the successful JSON response from the backend
-                const data = await response.json();
+                // Start reading the stream
+                return reader.read().then(processStream);
 
-                // Check the status field within the successful response
-                if (data.status === 'complete' && data.results) {
-                    displayResults(data.results); // Display the results in the tabs
-                } else {
-                    // Handle cases where status is not 'complete' or results are missing
-                    throw new Error(data.error || 'Received incomplete or unexpected data from server.');
+            })
+            .catch(error => {
+                console.error('Error during fetch/stream processing:', error);
+                showAlert(`An error occurred: ${error.message}`, 'danger');
+                if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress bar on error
+                if (eventSource) { // Ensure any old EventSource is closed on error too
+                    eventSource.close();
+                    eventSource = null;
                 }
-
-            } catch (error) {
-                // Catch errors from fetch operation or backend processing
-                console.error('Error during form submission:', error);
-                // Display the caught error message to the user
-                showAlert(`An error occurred: ${error.message}`);
-                if(resultsArea) resultsArea.classList.add('d-none'); // Keep results hidden on error
-            } finally {
-                // Always hide the progress bar after completion or error
-                if(progressContainer) progressContainer.classList.add('d-none');
-            }
+            });
         });
     } else {
         console.error("Course form element not found.");
@@ -449,15 +390,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expand All Button Listener
     if (expandAllBtn) {
         expandAllBtn.addEventListener('click', () => toggleAllCourses(true));
-    } else {
-        console.error("Expand All button not found.");
-    }
+    } else { console.error("Expand All button not found."); }
 
     // Collapse All Button Listener
     if (collapseAllBtn) {
         collapseAllBtn.addEventListener('click', () => toggleAllCourses(false));
-    } else {
-        console.error("Collapse All button not found.");
-    }
+    } else { console.error("Collapse All button not found."); }
 
 }); // End DOMContentLoaded listener

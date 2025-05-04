@@ -1,8 +1,10 @@
 # Import necessary libraries
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response # Added Response
 import requests
 import re
-from collections import defaultdict # Import defaultdict for easier grouping
+import json # Added json
+import time # Added time for potential delays/debugging
+from collections import defaultdict
 
 # Initialize Flask application
 app = Flask(__name__)
@@ -10,32 +12,24 @@ app = Flask(__name__)
 # Base URL for the Anteater API
 BASE_URL = "https://anteaterapi.com/v2/rest/enrollmentHistory"
 
+# --- Helper Functions (Mostly Unchanged) ---
+
 def parse_courses(input_text):
     """
     Parses a DegreeWorks-style string into a list of (department, course_number) tuples.
-    Handles various delimiters and ensures department context is maintained.
-    Example input: 'ANTHRO 2A , 20A , 30A , ARABIC 2A , 2B , 2C , 51'
-    Output: [('ANTHRO', '2A'), ('ANTHRO', '20A'), ..., ('ARABIC', '51')]
     """
-    # Split the input string by commas or spaces, handling potential extra whitespace
     tokens = re.split(r'(?:\s*,\s*|\s+)', input_text.strip())
     courses = []
     current_dept = None
     for token in tokens:
-        if not token: # Skip empty tokens resulting from multiple delimiters
-            continue
-        # Check if the token consists only of uppercase letters (and possibly '&' or '/') - likely a department code
+        if not token: continue
         if re.match(r'^[A-Z&/]+$', token):
             current_dept = token
-        # If we have a current department context and the token is not a department code, treat it as a course number
         elif current_dept is not None:
-            # Simple validation to avoid things like just '&' being treated as course number
-            if re.search(r'\d', token) or len(token) <= 3: # Allow short codes like '1A' or numbers
+            if re.search(r'\d', token) or len(token) <= 4: # Allow codes like '1A', '199W'
                  courses.append((current_dept, token))
             else:
                  print(f"Skipping potentially invalid course number token: {token} under department {current_dept}")
-
-        # Ignore tokens that appear before the first department code
     return courses
 
 def get_sections(dept, num, year, quarter):
@@ -43,202 +37,177 @@ def get_sections(dept, num, year, quarter):
     Fetches section data for a specific course, year, and quarter from the Anteater API.
     Returns a list of section dictionaries or an empty list if an error occurs or no data is found.
     """
-    params = {
-        "year": year,
-        "quarter": quarter,
-        "department": dept,
-        "courseNumber": num
-    }
+    params = {"year": year, "quarter": quarter, "department": dept, "courseNumber": num}
     try:
-        # Make the GET request to the API
-        r = requests.get(BASE_URL, params=params, timeout=15) # Increased timeout slightly
-        r.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+        r = requests.get(BASE_URL, params=params, timeout=15)
+        r.raise_for_status()
         data = r.json()
-        # Check the 'ok' flag in the API response
         if not data.get("ok"):
             print(f"API error for {dept} {num}: {data.get('message', 'Unknown API error')}")
-            return []
-        # Return the list of sections from the 'data' field, or an empty list if 'data' is missing/empty
-        return data.get("data", [])
+            return {"error": data.get('message', 'Unknown API error'), "data": []} # Return error info
+        return {"error": None, "data": data.get("data", [])} # Return data
     except requests.exceptions.Timeout:
         print(f"Timeout error fetching {dept} {num}")
-        return []
+        return {"error": "Request timed out.", "data": []}
     except requests.exceptions.RequestException as e:
-        # Handle potential network errors, timeouts, or bad responses
         print(f"Network/HTTP error fetching {dept} {num}: {e}")
-        return []
+        return {"error": f"Network/HTTP error: {e}", "data": []}
     except Exception as e:
-        # Catch any other unexpected errors during the request or JSON parsing
         print(f"Unexpected error fetching {dept} {num}: {e}")
-        return []
+        return {"error": f"Unexpected error: {e}", "data": []}
 
+def format_meeting_string(m):
+     """ Formats a single meeting object into a readable string. """
+     if isinstance(m, str): return m
 
-def process_courses(input_text, year, quarter):
-    """
-    Processes the parsed courses, fetches sections, and groups them by section type.
-    Returns a list of dictionaries, where each dictionary represents a course
-    and contains its sections grouped by type (e.g., {'Lec': [...], 'Dis': [...]}).
-    """
-    courses = parse_courses(input_text)
-    results = []
-    total_courses = len(courses)
-    processed_courses = 0
+     days = m.get('days') or m.get('dayOfWeek') or ''
+     start_time = m.get('beginTime') or m.get('startTime') or ''
+     end_time = m.get('endTime') or m.get('timeEnd') or ''
+     building = m.get('bldgName') or m.get('building') or ''
+     room = m.get('room', '')
 
-    # Iterate through each parsed course (department and number)
-    for dept, num in courses:
-        processed_courses += 1
-        # Use print to show progress in the server console, not directly to user
-        print(f"Searching for {dept} {num} ({processed_courses}/{total_courses})...")
+     time_str = f"{start_time}-{end_time}" if start_time and end_time else start_time or end_time or ''
+     time_str = time_str.strip('-') # Remove trailing/leading hyphen if one time is missing
 
-        try:
-            # Fetch sections for the current course
-            sections = get_sections(dept, num, year, quarter)
+     location_str = f"{building} {room}".strip() if building else ''
 
-            # Use defaultdict to easily group sections by type
-            grouped_sections = defaultdict(list)
+     parts = [part for part in [days, time_str, location_str] if part]
+     meeting_string = " ".join(parts).strip()
 
-            if not sections:
-                print(f"No sections found for {dept} {num}")
-                # Still add the course to results, but with empty grouped sections
-                results.append({
-                    'course': f'{dept} {num}',
-                    'sections': {}, # Use an empty dict for consistency
-                    'error': None # Explicitly set error to None
-                })
-                continue # Move to the next course
+     return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
 
-            # Process each section found
-            for sec in sections:
-                # Format meeting times into readable strings - REFINED LOGIC
-                meeting_strings = []
-                for m in sec.get('meetings', []):
-                    if isinstance(m, str): # If meeting is already a string (e.g., "TBA")
-                        meeting_strings.append(m)
-                        continue
+# --- Routes ---
 
-                    # Extract parts, handling missing data using .get with defaults
-                    days = m.get('days') or m.get('dayOfWeek') or ''
-                    start_time = m.get('beginTime') or m.get('startTime') or ''
-                    end_time = m.get('endTime') or m.get('timeEnd') or ''
-                    building = m.get('bldgName') or m.get('building') or ''
-                    room = m.get('room', '') # Default to empty string if missing
-
-                    # Construct time string carefully
-                    time_str = ''
-                    if start_time and end_time:
-                        time_str = f"{start_time}-{end_time}"
-                    elif start_time:
-                        # Handle cases like only start time listed (less common)
-                        time_str = f"From {start_time}"
-                    elif end_time:
-                         # Handle cases like only end time listed (less common)
-                        time_str = f"Until {end_time}"
-                    # If both are missing, time_str remains empty
-
-                    # Construct location string
-                    location_str = f"{building} {room}".strip() if building else '' # Only add room if building exists
-
-                    # Combine parts, filtering out empty strings
-                    parts = [part for part in [days, time_str, location_str] if part]
-                    meeting_string = " ".join(parts).strip()
-
-                    # If all parts were empty, use meeting type or a default placeholder
-                    if not meeting_string:
-                        meeting_string = m.get('meetingType') or 'Details TBA' # e.g., 'ASYNC' or 'Details TBA'
-
-                    meeting_strings.append(meeting_string)
-                # END REFINED MEETING LOGIC
-
-                # Create the dictionary for the current section's details
-                section_data = {
-                    'code': sec.get('sectionCode', 'N/A'), # Use .get for safety
-                    'type': sec.get('sectionType', 'N/A'),
-                    'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
-                    # Safely access the last element of statusHistory or provide 'Unknown'
-                    'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
-                    'meetings': meeting_strings, # Use the formatted meeting strings
-                    'units': sec.get('units', 'N/A')
-                }
-                # Add the section data to the list corresponding to its type in the grouped_sections dictionary
-                grouped_sections[section_data['type']].append(section_data)
-
-            # Append the course details and its grouped sections to the overall results list
-            results.append({
-                'course': f'{dept} {num}',
-                'sections': dict(grouped_sections), # Convert defaultdict back to regular dict for JSON
-                'error': None # No error for this course
-            })
-
-            print(f"Found sections for {dept} {num}, grouped by type.")
-
-        except Exception as e:
-            # Catch unexpected errors during section processing for a specific course
-            import traceback
-            print(f"Error processing {dept} {num}: {str(e)}")
-            print(traceback.format_exc()) # Print full traceback for debugging
-            results.append({
-                'course': f'{dept} {num}',
-                'sections': {}, # Empty dict for consistency
-                'error': f"Failed to process sections: {str(e)}" # Include error message
-            })
-
-    return results
-
-# Route for the main page
 @app.route('/')
 def index():
     """Renders the main HTML page."""
+    # Assumes index.html is in a 'templates' folder
+    # Assumes style.css and script.js are in a 'static' folder
     return render_template('index.html')
 
-# Route to handle the form submission and process courses
-@app.route('/process', methods=['POST'])
-def process():
+# New SSE Route for processing courses and streaming updates
+@app.route('/stream_process', methods=['POST'])
+def stream_process():
     """
-    Handles the POST request from the frontend.
-    Retrieves form data, calls process_courses, and returns results as JSON.
+    Handles the POST request, processes courses, and streams updates via SSE.
     """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Invalid JSON payload received.'}), 400
-
-        input_text = data.get('input_text', '')
-        year = data.get('year', '')
-        quarter = data.get('quarter', '')
-
-        # Basic server-side validation
-        if not input_text:
-             return jsonify({'error': 'DegreeWorks string cannot be empty.'}), 400
-        if not year:
-             return jsonify({'error': 'Year cannot be empty.'}), 400
-        if not quarter:
-             return jsonify({'error': 'Quarter cannot be empty.'}), 400
-        if not year.isdigit() or len(year) != 4:
-             return jsonify({'error': 'Invalid year format. Please use YYYY.'}), 400
-        # Allow more specific summer quarters if needed by API
-        valid_quarters = ["Fall", "Winter", "Spring", "Summer", "Summer1", "Summer10wk", "Summer2"]
-        if quarter not in valid_quarters:
-             return jsonify({'error': f'Invalid quarter selected. Choose from: {", ".join(valid_quarters)}'}), 400
+    data = request.get_json()
+    if not data:
+        # Cannot yield an error easily here before returning Response,
+        # client-side validation should prevent this.
+        # Log error server-side.
+        print("Error: Invalid JSON payload received in /stream_process")
+        # Return an empty stream or appropriate error response if possible,
+        # but standard SSE expects a stream. Best to rely on client validation.
+        return Response("data: {\"type\": \"error\", \"message\": \"Invalid request payload.\"}\n\n", mimetype='text/event-stream')
 
 
-        # Process the courses using the updated function
-        results = process_courses(input_text, year, quarter)
+    input_text = data.get('input_text', '')
+    year = data.get('year', '')
+    quarter = data.get('quarter', '')
 
-        # Return the results and a completion status
-        return jsonify({
-            'status': 'complete',
-            'results': results
-        })
-    except Exception as e:
-        # Catch any errors during request handling or processing
-        import traceback
-        print(f"Error in /process route: {e}")
-        print(traceback.format_exc()) # Log full traceback
-        # Provide a generic error message to the user
-        return jsonify({'error': 'An unexpected error occurred on the server. Please try again later.'}), 500
+    # Basic validation (can yield error messages)
+    if not all([input_text, year, quarter]):
+         return Response("data: {\"type\": \"error\", \"message\": \"Missing required fields.\"}\n\n", mimetype='text/event-stream')
+    if not year.isdigit() or len(year) != 4:
+         return Response("data: {\"type\": \"error\", \"message\": \"Invalid year format.\"}\n\n", mimetype='text/event-stream')
+    valid_quarters = ["Fall", "Winter", "Spring", "Summer", "Summer1", "Summer10wk", "Summer2"]
+    if quarter not in valid_quarters:
+         return Response(f"data: {{\"type\": \"error\", \"message\": \"Invalid quarter selected.\"}}\n\n", mimetype='text/event-stream')
+
+    # --- Generator function for streaming ---
+    def generate_updates():
+        courses_to_process = []
+        try:
+            courses_to_process = parse_courses(input_text)
+            if not courses_to_process:
+                 yield f"data: {json.dumps({'type': 'error', 'message': 'No valid courses parsed from input.'})}\n\n"
+                 yield f"data: {json.dumps({'type': 'complete', 'results': []})}\n\n" # Send complete signal
+                 return # Stop generation
+        except Exception as e:
+            print(f"Error parsing courses: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Error parsing input: {e}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'results': []})}\n\n" # Send complete signal
+            return # Stop generation
+
+
+        total_courses = len(courses_to_process)
+        processed_courses_count = 0
+        all_results_data = [] # Accumulate results here
+
+        for dept, num in courses_to_process:
+            processed_courses_count += 1
+            progress = int((processed_courses_count / total_courses) * 100)
+            log_message = f"Searching for {dept} {num} ({processed_courses_count}/{total_courses})..."
+
+            # Yield progress update
+            progress_data = {
+                "type": "progress",
+                "value": progress,
+                "message": log_message
+            }
+            yield f"data: {json.dumps(progress_data)}\n\n"
+            # time.sleep(0.1) # Optional small delay for smoother UI update
+
+            # Fetch and process sections for this course
+            section_fetch_result = get_sections(dept, num, year, quarter)
+            api_error = section_fetch_result.get("error")
+            sections = section_fetch_result.get("data", [])
+
+            course_result = {
+                'course': f'{dept} {num}',
+                'sections': {},
+                'error': api_error # Include API error if any
+            }
+
+            if api_error:
+                 log_message = f"Error fetching {dept} {num}: {api_error}"
+            elif not sections:
+                log_message = f"No sections found for {dept} {num}."
+            else:
+                grouped_sections = defaultdict(list)
+                for sec in sections:
+                    # Format section data
+                    meeting_strings = [format_meeting_string(m) for m in sec.get('meetings', [])]
+                    section_data = {
+                        'code': sec.get('sectionCode', 'N/A'),
+                        'type': sec.get('sectionType', 'N/A'),
+                        'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
+                        'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
+                        'meetings': meeting_strings,
+                        'units': sec.get('units', 'N/A')
+                    }
+                    grouped_sections[section_data['type']].append(section_data)
+                course_result['sections'] = dict(grouped_sections)
+                log_message = f"Processed {dept} {num}."
+
+            # Accumulate result for this course
+            all_results_data.append(course_result)
+
+            # Yield log message update (can be combined with progress or sent separately)
+            log_update = {
+                "type": "log",
+                "message": log_message
+            }
+            yield f"data: {json.dumps(log_update)}\n\n"
+            # time.sleep(0.1) # Optional small delay
+
+        # Signal completion and send all accumulated results
+        completion_data = {
+            "type": "complete",
+            "results": all_results_data
+        }
+        yield f"data: {json.dumps(completion_data)}\n\n"
+
+    # Return the generator function wrapped in a Response object
+    return Response(generate_updates(), mimetype='text/event-stream')
+
+# Keep the old /process route as a fallback or remove if not needed
+# @app.route('/process', methods=['POST'])
+# def process():
+#     # ... (original synchronous implementation) ...
+#     pass
 
 # Run the Flask app
 if __name__ == '__main__':
-    # Enables debugging mode for development (auto-reloads, provides debug info)
-    # Set debug=False for production
-    app.run(debug=True)
+    app.run(debug=True) # debug=True helps with development, set to False for production
