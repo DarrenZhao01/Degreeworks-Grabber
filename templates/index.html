@@ -202,60 +202,25 @@
         }
 
         function displayResults(results) {
-            // Clear progress indicator
+            // Clear progress and tab panes
             document.querySelector('.progress-container').classList.add('d-none');
-
-            // Get references to tab panes and buttons
             const availablePane = document.getElementById('available');
             const unavailablePane = document.getElementById('unavailable');
             const allPane = document.getElementById('all');
-            const availableTabButton = document.getElementById('available-tab');
-            const unavailableTabButton = document.getElementById('unavailable-tab');
-            const allTabButton = document.getElementById('all-tab');
-
-            // Clear existing content from panes
             availablePane.innerHTML = '';
             unavailablePane.innerHTML = '';
             allPane.innerHTML = '';
-
-            // Reset active states for all tabs and panes before populating
-            availableTabButton.classList.remove('active');
-            availableTabButton.setAttribute('aria-selected', 'false');
-            availablePane.classList.remove('show', 'active');
-
-            unavailableTabButton.classList.remove('active');
-            unavailableTabButton.setAttribute('aria-selected', 'false');
-            unavailablePane.classList.remove('show', 'active');
-
-            allTabButton.classList.remove('active');
-            allTabButton.setAttribute('aria-selected', 'false');
-            allPane.classList.remove('show', 'active');
-
-            // Populate panes based on course availability
+            // Populate panes
             results.forEach(course => {
-                const card = createCourseCard(course); // Create the card once
-                const cardClone1 = card.cloneNode(true); // Clone for available/unavailable
-                const cardClone2 = card.cloneNode(true); // Clone for 'all' tab
-
-                // Check if any section within the course is 'Open'
+                const card = createCourseCard(course);
                 const hasOpen = course.sections.some(s => s.status === 'Open');
-
-                if (hasOpen) {
-                    availablePane.appendChild(cardClone1); // Add to Available
-                } else {
-                    // Add to Unavailable only if there are sections (i.e., not an error case)
-                    if (course.sections.length > 0 || course.error) {
-                       unavailablePane.appendChild(cardClone1);
-                    }
-                }
-                 // Always add a clone to the 'All' tab
-                allPane.appendChild(cardClone2);
+                if (hasOpen) availablePane.appendChild(card.cloneNode(true));
+                else unavailablePane.appendChild(card.cloneNode(true));
+                allPane.appendChild(card);
             });
-
-            // Explicitly set "Available Courses" tab and pane as active
-            availableTabButton.classList.add('active');
-            availableTabButton.setAttribute('aria-selected', 'true'); // Important for accessibility
-            availablePane.classList.add('show', 'active');
+            // Ensure "Available Courses" tab is active
+            const availableTab = new bootstrap.Tab(document.querySelector('#available-tab'));
+            availableTab.show();
         }
     </script>
     <script>
