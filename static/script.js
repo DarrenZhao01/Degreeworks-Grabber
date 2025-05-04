@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsArea = document.getElementById('resultsArea');
     const alertArea = document.getElementById('alertArea');
     const yearInput = document.getElementById('year');
+    const quarterSelect = document.getElementById('quarter'); // Get quarter select element
     const allCoursesPane = document.getElementById('all-courses');
     const availableCoursesPane = document.getElementById('available-courses');
     const unavailableCoursesPane = document.getElementById('unavailable-courses');
@@ -18,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const collapseAllBtn = document.getElementById('collapseAllBtn');
 
     let eventSource = null; // Variable to hold the EventSource connection
+    let currentYear = ''; // Store year for link generation
+    let currentQuarter = ''; // Store quarter for link generation
 
     // --- Input Validation and Initialization ---
     if (yearInput) {
@@ -26,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("Year input element not found.");
     }
 
-    // --- Utility Functions (Mostly Unchanged) ---
+    // --- Utility Functions ---
 
     function showAlert(message, type = 'danger') {
         if (!alertArea) { console.error("Alert area element not found."); return; }
@@ -51,12 +54,62 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'status-unknown';
     }
 
+    /**
+     * Formats the selected quarter name for the AntAlmanac URL.
+     * @param {string} quarterValue - The value from the quarter select dropdown.
+     * @returns {string} The formatted quarter name for the URL (e.g., "Spring", "Summer%20Session%201").
+     */
+    function formatQuarterForAntAlmanac(quarterValue) {
+        switch (quarterValue) {
+            case "Fall": return "Fall";
+            case "Winter": return "Winter";
+            case "Spring": return "Spring";
+            case "Summer1": return "Summer%20Session%201";
+            case "Summer10wk": return "Summer%2010%20Week";
+            case "Summer2": return "Summer%20Session%202";
+            case "Summer": return "Summer"; // Assuming AntAlmanac might accept a general Summer? Test this.
+            default: return quarterValue; // Fallback
+        }
+    }
+
+    /**
+     * Parses department and course number from a course string like "COMPSCI 161".
+     * @param {string} courseString - The combined course string.
+     * @returns {object | null} An object { deptValue, courseNumber } or null if parsing fails.
+     */
+    function parseCourseString(courseString) {
+        if (!courseString || typeof courseString !== 'string') return null;
+        // Match the department (letters, &, /) and the course number (alphanumeric, possibly with letters like 1A)
+        const match = courseString.trim().match(/^([A-Z&/]+)\s+(.*)$/i);
+        if (match && match.length === 3) {
+            return {
+                deptValue: match[1].toUpperCase(), // Ensure department is uppercase
+                courseNumber: match[2] // Keep course number as is (e.g., '161', '45J', '199W')
+            };
+        }
+        console.warn("Could not parse course string:", courseString);
+        return null; // Parsing failed
+    }
+
+
+    /**
+     * Creates a single table row for a section, linking the code to AntAlmanac.
+     * @param {object} section - The section data object.
+     * @returns {HTMLTableRowElement} The created table row element.
+     */
     function createSectionRow(section) {
         const row = document.createElement('tr');
         const safeSection = section || {};
         const statusBadgeClass = getStatusBadgeClass(safeSection.status);
+        const sectionCode = safeSection.code || 'N/A';
+
+        // Create AntAlmanac link for the section code
+        const codeLink = (sectionCode !== 'N/A' && /^\d+$/.test(sectionCode)) // Only link if it looks like a valid code
+            ? `<a href="https://antalmanac.com/?courseCode=${sectionCode}" target="_blank" rel="noopener noreferrer">${sectionCode}</a>`
+            : sectionCode;
+
         row.innerHTML = `
-            <td data-label="Code">${safeSection.code || 'N/A'}</td>
+            <td data-label="Code">${codeLink}</td>
             <td data-label="Instructors">${safeSection.instructors || 'TBA'}</td>
             <td data-label="Status"><span class="badge ${statusBadgeClass} status-badge">${safeSection.status || 'Unknown'}</span></td>
             <td data-label="Meetings" class="meeting-details">${safeSection.meetings && safeSection.meetings.length > 0 ? safeSection.meetings.join('<br>') : 'TBA'}</td>
@@ -65,9 +118,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
-    function createCourseCard(course, idPrefix) {
-        if (!course || typeof course !== 'object' || !idPrefix) {
-             console.error("Invalid input to createCourseCard:", course, idPrefix);
+    /**
+     * Creates a course card element, linking the title to AntAlmanac.
+     * @param {object} course - The course data object.
+     * @param {string} idPrefix - A unique prefix for element IDs within this card.
+     * @param {string} year - The selected year (e.g., "2025").
+     * @param {string} quarter - The selected quarter value (e.g., "Spring", "Summer1").
+     * @returns {HTMLDivElement | null} The created card element or null on error.
+     */
+    function createCourseCard(course, idPrefix, year, quarter) {
+        if (!course || typeof course !== 'object' || !idPrefix || !year || !quarter) {
+             console.error("Invalid input to createCourseCard:", course, idPrefix, year, quarter);
              return null;
         }
         const courseCard = document.createElement('div');
@@ -75,21 +136,39 @@ document.addEventListener('DOMContentLoaded', () => {
         courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`;
         const collapseId = `${idPrefix}-collapse`;
         const headerId = `${idPrefix}-header`;
+
+        // --- Create AntAlmanac Link for Course Title ---
+        let courseTitleContent = course.course || 'Unknown Course'; // Default text
+        const parsedCourse = parseCourseString(course.course);
+        if (parsedCourse) {
+            const formattedQuarter = formatQuarterForAntAlmanac(quarter);
+            const term = `${year}%20${formattedQuarter}`;
+            const antAlmanacUrl = `https://antalmanac.com/?term=${term}&deptValue=${parsedCourse.deptValue}&courseNumber=${encodeURIComponent(parsedCourse.courseNumber)}`;
+            // Wrap the original course string in the link
+            // *** Removed text-decoration-none and text-reset classes ***
+            courseTitleContent = `<a href="${antAlmanacUrl}" target="_blank" rel="noopener noreferrer">${course.course}</a>`;
+        }
+        // --- End Link Creation ---
+
         const cardHeader = document.createElement('div');
-        cardHeader.className = 'card-header collapsed';
+        cardHeader.className = 'card-header collapsed'; // Start collapsed
         cardHeader.setAttribute('data-bs-toggle', 'collapse');
         cardHeader.setAttribute('data-bs-target', `#${collapseId}`);
-        cardHeader.setAttribute('aria-expanded', 'false');
+        cardHeader.setAttribute('aria-expanded', 'false'); // Start collapsed
         cardHeader.setAttribute('aria-controls', collapseId);
         cardHeader.id = headerId;
-        cardHeader.innerHTML = `${course.course || 'Unknown Course'} <i class="fas fa-chevron-down collapse-arrow"></i>`;
+        // Use the potentially linked title content here
+        cardHeader.innerHTML = `${courseTitleContent} <i class="fas fa-chevron-down collapse-arrow"></i>`;
         courseCard.appendChild(cardHeader);
+
         const collapseWrapper = document.createElement('div');
         collapseWrapper.id = collapseId;
-        collapseWrapper.className = 'collapse card-body-wrapper';
+        collapseWrapper.className = 'collapse card-body-wrapper'; // Start collapsed
         collapseWrapper.setAttribute('aria-labelledby', headerId);
+
         const cardBody = document.createElement('div');
         cardBody.className = 'card-body';
+
         if (course.error) {
              const errorMsg = document.createElement('p');
              errorMsg.className = 'error-message'; errorMsg.textContent = `Error: ${course.error}`;
@@ -99,26 +178,38 @@ document.addEventListener('DOMContentLoaded', () => {
             noSectionsMsg.className = 'no-sections-message'; noSectionsMsg.textContent = 'No sections found for this term.';
             cardBody.appendChild(noSectionsMsg);
         } else {
-            const sectionTypes = Object.keys(course.sections).sort((a, b) => { /* ... sorting logic ... */
+            // Sort section types (Lec, Dis, Lab, etc.)
+            const sectionTypes = Object.keys(course.sections).sort((a, b) => {
                 const order = { 'Lec': 1, 'Dis': 2, 'Lab': 3, 'Sem': 4, 'Tut': 5, 'Qiz': 6, 'Fld': 7, 'Res': 8, 'Stu': 9, 'Act': 10, 'Col': 11 };
                 const orderA = order[a] || 99; const orderB = order[b] || 99;
                 if (orderA !== orderB) return orderA - orderB; return a.localeCompare(b);
             });
+
             sectionTypes.forEach(type => {
                 const sectionsOfType = course.sections[type];
                 if (!Array.isArray(sectionsOfType) || sectionsOfType.length === 0) return;
+
+                // Add section type header (e.g., "Lectures", "Discussions")
                 const typeHeader = document.createElement('h6');
                 typeHeader.className = 'section-type-header';
-                const typeNameMap = { /* ... type names ... */ 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
+                const typeNameMap = { 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
                 typeHeader.textContent = typeNameMap[type] || type; cardBody.appendChild(typeHeader);
+
+                // Create table for sections of this type
                 const table = document.createElement('table'); table.className = 'table table-hover table-sm';
                 const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
-                table.appendChild(thead); const tbody = document.createElement('tbody');
-                sectionsOfType.forEach(section => { if (section && typeof section === 'object') tbody.appendChild(createSectionRow(section)); });
-                table.appendChild(tbody); cardBody.appendChild(table);
+                table.appendChild(thead);
+                const tbody = document.createElement('tbody');
+                sectionsOfType.forEach(section => {
+                    // Pass the section data to createSectionRow
+                    if (section && typeof section === 'object') tbody.appendChild(createSectionRow(section));
+                });
+                table.appendChild(tbody);
+                cardBody.appendChild(table);
             });
         }
-        collapseWrapper.appendChild(cardBody); courseCard.appendChild(collapseWrapper);
+        collapseWrapper.appendChild(cardBody);
+        courseCard.appendChild(collapseWrapper);
         return courseCard;
     }
 
@@ -138,8 +229,10 @@ document.addEventListener('DOMContentLoaded', () => {
      * Displays the FINAL course results in the appropriate filter tabs.
      * Clears the progress log.
      * @param {Array<object> | null | undefined} finalResults - An array of course objects.
+     * @param {string} year - The selected year.
+     * @param {string} quarter - The selected quarter.
      */
-    function displayFinalResults(finalResults) {
+    function displayFinalResults(finalResults, year, quarter) {
         // Clear the progress log now that results are final
         if (progressLog) progressLog.innerHTML = '';
         if (progressContainer) progressContainer.classList.add('d-none'); // Ensure progress bar is hidden
@@ -170,15 +263,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const availIdPrefix = `avail-${index}`;
                 const unavailIdPrefix = `unavail-${index}`;
 
-                const allCard = createCourseCard(course, allIdPrefix);
+                // Pass year and quarter to createCourseCard
+                const allCard = createCourseCard(course, allIdPrefix, year, quarter);
                 if (allCard) {
                      allCoursesPane.appendChild(allCard);
                      const isAvailable = isCourseAvailable(course);
                      if (isAvailable) {
-                         const availableCard = createCourseCard(course, availIdPrefix);
+                         // Pass year and quarter here too
+                         const availableCard = createCourseCard(course, availIdPrefix, year, quarter);
                          if(availableCard) { availableCoursesPane.appendChild(availableCard); availableCount++; }
                      } else {
-                         const unavailableCard = createCourseCard(course, unavailIdPrefix);
+                         // Pass year and quarter here too
+                         const unavailableCard = createCourseCard(course, unavailIdPrefix, year, quarter);
                          if(unavailableCard) { unavailableCoursesPane.appendChild(unavailableCard); unavailableCount++; }
                      }
                 } else { console.warn("Skipping invalid course data in final display:", course); }
@@ -217,7 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Event Listeners ---
 
-    // Form Submission Listener (Now uses EventSource)
+    // Form Submission Listener (Uses Fetch API with ReadableStream)
     if (courseForm) {
         courseForm.addEventListener('submit', (e) => {
             e.preventDefault();
@@ -225,10 +321,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if(resultsArea) resultsArea.classList.add('d-none'); // Hide previous results
             if(progressLog) progressLog.innerHTML = ''; // Clear previous log
 
-            // Close existing EventSource connection if any
+            // Close existing EventSource connection if any (though we use Fetch now)
             if (eventSource) {
                 eventSource.close();
                 console.log("Previous EventSource closed.");
+                eventSource = null;
             }
 
             // Show progress indicator
@@ -246,11 +343,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Get form data
             const inputTextElement = document.getElementById('inputText');
-            const quarterElement = document.getElementById('quarter');
+            // Get current year and quarter values and store them
+            currentYear = yearInput ? yearInput.value : '';
+            currentQuarter = quarterSelect ? quarterSelect.value : '';
+
             const formData = {
                 input_text: inputTextElement ? inputTextElement.value.trim() : '',
-                year: yearInput ? yearInput.value : '',
-                quarter: quarterElement ? quarterElement.value : ''
+                year: currentYear,
+                quarter: currentQuarter
             };
 
             // Basic client-side validation
@@ -265,28 +365,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // --- Initialize EventSource ---
-            // We need to send POST data. EventSource only supports GET.
-            // Workaround: Use fetch to initiate, then handle stream? No, SSE standard is GET.
-            // Option 1: Pass data via query params (less ideal for potentially long text).
-            // Option 2: Use a library that wraps Fetch/XHR to simulate EventSource with POST.
-            // Option 3: (Simplest for now) Use GET and query parameters. Let's try this first.
-            // **Correction:** Flask can handle POST for SSE setup. The client *connects* via EventSource (GET),
-            // but the *initial* request that *triggers* the stream generation can be POST.
-            // Let's stick to the POST approach for `/stream_process` in Flask.
-            // The client side needs to initiate the POST and then somehow listen?
-            // This is where standard EventSource fails.
-            //
-            // **Revised Approach:** Use Fetch API with ReadableStream.
-            // This is more modern and handles POST body streaming.
-
+            // --- Initialize Fetch for Streaming ---
             console.log("Initiating fetch to /stream_process");
 
             fetch('/stream_process', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept': 'text/event-stream' // Important: Tell server we expect a stream
+                    'Accept': 'text/event-stream' // Tell server we expect a stream
                 },
                 body: JSON.stringify(formData)
             })
@@ -308,8 +394,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (done) {
                         console.log("Stream finished.");
                         // Handle case where stream finishes without a 'complete' message?
+                        // This might happen if the connection drops or server terminates unexpectedly.
+                        // If no 'complete' message was received and results area is still hidden, show an alert.
+                        if (resultsArea && resultsArea.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
+                             showAlert("The connection closed before processing completed. Please try again.", "warning");
+                        }
+                         // Ensure progress is hidden even if stream ends unexpectedly
                         if(progressContainer) progressContainer.classList.add('d-none');
-                        // If no 'complete' message was received, maybe show an alert.
                         return;
                     }
 
@@ -348,19 +439,25 @@ document.addEventListener('DOMContentLoaded', () => {
                                      }
                                 } else if (eventData.type === 'complete') {
                                     console.log("Received 'complete' message.");
-                                    displayFinalResults(eventData.results); // Display final results
+                                    // Pass the stored year and quarter to the display function
+                                    displayFinalResults(eventData.results, currentYear, currentQuarter);
                                     // Stream should close automatically after this
                                     return; // Stop processing further chunks for this branch
                                 } else if (eventData.type === 'error') {
                                      console.error("Received error from server stream:", eventData.message);
                                      showAlert(`Server error: ${eventData.message}`, 'danger');
                                      if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress on error
-                                     reader.cancel(); // Attempt to cancel the stream reader
+                                     reader.cancel().catch(e => console.warn("Error cancelling reader:", e)); // Attempt to cancel the stream reader
                                      return; // Stop processing
                                 }
                             } catch (e) {
                                 console.error("Error parsing SSE data:", e, "Raw data:", jsonData);
+                                // Don't stop the stream, just log the error for this message
                             }
+                        } else if (message.startsWith('event:') || message.startsWith('id:') || message.startsWith('retry:')) {
+                             // Ignore other SSE fields for now
+                        } else if (message) {
+                             console.warn("Received non-standard SSE line:", message);
                         }
                         boundary = accumulatedData.indexOf('\n\n'); // Look for next message
                     }
@@ -377,10 +474,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Error during fetch/stream processing:', error);
                 showAlert(`An error occurred: ${error.message}`, 'danger');
                 if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress bar on error
-                if (eventSource) { // Ensure any old EventSource is closed on error too
-                    eventSource.close();
-                    eventSource = null;
-                }
             });
         });
     } else {
