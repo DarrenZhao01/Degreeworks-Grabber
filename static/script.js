@@ -104,8 +104,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const sectionCode = safeSection.code || 'N/A';
 
         // Create AntAlmanac link for the section code
+        // Add specific class 'course-code-link' and onclick handler
         const codeLink = (sectionCode !== 'N/A' && /^\d+$/.test(sectionCode)) // Only link if it looks like a valid code
-            ? `<a href="https://antalmanac.com/?courseCode=${sectionCode}" target="_blank" rel="noopener noreferrer">${sectionCode}</a>`
+            ? `<a href="https://antalmanac.com/?courseCode=${sectionCode}"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 class="course-code-link"  /* Added specific class */
+                 onclick="event.stopPropagation()">
+                 ${sectionCode}
+               </a>`
             : sectionCode;
 
         row.innerHTML = `
@@ -119,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Creates a course card element, linking the title to AntAlmanac.
+     * Creates a course card element, linking the title to AntAlmanac via an icon.
      * @param {object} course - The course data object.
      * @param {string} idPrefix - A unique prefix for element IDs within this card.
      * @param {string} year - The selected year (e.g., "2025").
@@ -137,18 +144,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const collapseId = `${idPrefix}-collapse`;
         const headerId = `${idPrefix}-header`;
 
-        // --- Create AntAlmanac Link for Course Title ---
-        let courseTitleContent = course.course || 'Unknown Course'; // Default text
+        // --- Create AntAlmanac Link Icon ---
+        let antAlmanacIconLink = ''; // Default to empty string
+        const courseTitleText = course.course || 'Unknown Course'; // Plain text title
         const parsedCourse = parseCourseString(course.course);
+
         if (parsedCourse) {
             const formattedQuarter = formatQuarterForAntAlmanac(quarter);
             const term = `${year}%20${formattedQuarter}`;
             const antAlmanacUrl = `https://antalmanac.com/?term=${term}&deptValue=${parsedCourse.deptValue}&courseNumber=${encodeURIComponent(parsedCourse.courseNumber)}`;
-            // Wrap the original course string in the link
-            // *** Removed text-decoration-none and text-reset classes ***
-            courseTitleContent = `<a href="${antAlmanacUrl}" target="_blank" rel="noopener noreferrer">${course.course}</a>`;
+            // Create the icon link separately
+            antAlmanacIconLink = `
+                <a href="${antAlmanacUrl}"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="antalmanac-link-icon ms-2"  /* Added specific class and margin */
+                   onclick="event.stopPropagation()"
+                   title="View on AntAlmanac">
+                    <i class="fas fa-external-link-alt"></i>
+                </a>`;
         }
-        // --- End Link Creation ---
+        // --- End Link Icon Creation ---
 
         const cardHeader = document.createElement('div');
         cardHeader.className = 'card-header collapsed'; // Start collapsed
@@ -157,9 +173,18 @@ document.addEventListener('DOMContentLoaded', () => {
         cardHeader.setAttribute('aria-expanded', 'false'); // Start collapsed
         cardHeader.setAttribute('aria-controls', collapseId);
         cardHeader.id = headerId;
-        // Use the potentially linked title content here
-        cardHeader.innerHTML = `${courseTitleContent} <i class="fas fa-chevron-down collapse-arrow"></i>`;
+
+        // Use flexbox alignment in the header (defined in CSS)
+        // Place title text and icon link together
+        cardHeader.innerHTML = `
+            <span class="course-title-container">
+                ${courseTitleText}
+                ${antAlmanacIconLink}
+            </span>
+            <i class="fas fa-chevron-down collapse-arrow"></i>
+        `;
         courseCard.appendChild(cardHeader);
+
 
         const collapseWrapper = document.createElement('div');
         collapseWrapper.id = collapseId;
