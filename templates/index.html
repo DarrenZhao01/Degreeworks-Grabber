@@ -19,7 +19,7 @@
         .container {
             max-width: 960px; /* Limit width for better readability */
         }
-        /* Style the main card */
+        /* Style the main card (for input form) */
         .card {
             border: none; /* Remove default border */
             border-radius: 0.75rem; /* More rounded corners */
@@ -60,27 +60,108 @@
         .progress-bar {
             background-color: #0d6efd; /* Match button color */
         }
+        .progress-text {
+            text-align: center;
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 0.5rem;
+        }
         /* Results area styling */
         .results-area {
             margin-top: 2rem;
         }
+         /* Collapse/Expand All buttons container */
+        .collapse-controls {
+            margin-bottom: 1rem;
+            text-align: right; /* Align buttons to the right */
+        }
+        .collapse-controls .btn {
+             font-size: 0.85rem; /* Smaller font size for buttons */
+             padding: 0.3rem 0.8rem; /* Adjust padding */
+        }
+         /* Style filter tabs */
+        .nav-tabs {
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 1.5rem; /* Space below tabs */
+        }
+        .nav-tabs .nav-link {
+            border-radius: 0.5rem 0.5rem 0 0; /* Rounded top corners */
+            color: #495057; /* Default tab text color */
+            font-weight: 500;
+            border-color: #e9ecef #e9ecef #dee2e6; /* Match Bootstrap defaults */
+            padding: 0.6rem 1rem; /* Adjust tab padding */
+        }
+        .nav-tabs .nav-link.active {
+            color: #0d6efd; /* Active tab text color */
+            background-color: #fff; /* Active tab background */
+            border-color: #dee2e6 #dee2e6 #fff; /* Active tab border */
+            font-weight: 600;
+        }
+        .tab-content > .tab-pane {
+            padding: 0; /* Remove default padding if results have their own */
+        }
         /* Course card styling */
         .course-card {
-            margin-bottom: 1.5rem;
+            margin-bottom: 1rem; /* Slightly reduce margin */
             border-radius: 0.75rem;
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            overflow: hidden; /* Ensure content stays within rounded corners */
+            overflow: hidden; /* Change back to hidden for clean rounded corners */
             border: 1px solid #dee2e6; /* Subtle border */
         }
         .course-card .card-header {
-            background-color: #e9ecef; /* Light header background */
             font-weight: 600; /* Bold course title */
             padding: 0.75rem 1.25rem;
             border-bottom: 1px solid #dee2e6;
+            cursor: pointer; /* Indicate clickable header */
+            position: relative; /* Needed for absolute positioning of arrow */
+            /* Default background */
+            background-color: #e9ecef;
+            color: #212529; /* Default text color */
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-radius 0.15s ease-in-out;
         }
-        .course-card .card-body {
-            padding: 0; /* Remove padding to allow tables to span full width */
+         /* Style header when the body is collapsed */
+        .course-card .card-header.collapsed {
+             border-bottom: none; /* Remove bottom border when collapsed */
         }
+        /* Style header for AVAILABLE courses */
+        .course-card.course-card-available .card-header {
+            background-color: #d1e7dd; /* Bootstrap success background */
+            color: #0f5132; /* Bootstrap success text */
+            border-color: #badbcc; /* Slightly darker border */
+        }
+        /* Style arrow color for available header */
+         .course-card.course-card-available .card-header .collapse-arrow {
+             color: #0f5132;
+         }
+
+
+        .course-card .card-body-wrapper {
+             border-top: 1px solid #dee2e6; /* Add border to wrapper */
+             padding: 0; /* Remove padding from wrapper */
+        }
+         /* Hide top border when header is collapsed */
+         .course-card .card-header.collapsed + .card-body-wrapper {
+             border-top: none;
+         }
+
+        .course-card .card-body-wrapper .card-body {
+            padding: 0; /* Remove padding from inner body if tables handle it */
+        }
+
+        /* Collapse Arrow Styling */
+        .course-card .card-header .collapse-arrow {
+            position: absolute;
+            right: 1.25rem;
+            top: 50%;
+            transform: translateY(-50%) rotate(0deg); /* Initial state (down arrow) */
+            transition: transform 0.3s ease; /* Smooth rotation */
+            color: #6c757d; /* Default arrow color */
+        }
+        .course-card .card-header:not(.collapsed) .collapse-arrow {
+            transform: translateY(-50%) rotate(-180deg); /* Rotated state (up arrow) */
+        }
+
+
         /* Section type heading */
         .section-type-header {
             font-size: 0.95rem;
@@ -89,7 +170,14 @@
             background-color: #f8f9fa; /* Slightly different background for type */
             margin: 0;
             border-bottom: 1px solid #dee2e6;
+            /* border-top: 1px solid #dee2e6; /* Remove top border here */
         }
+         /* Add top border only if it's NOT the first child */
+         .course-card .card-body > *:not(:first-child).section-type-header {
+             border-top: 1px solid #dee2e6;
+         }
+
+
         /* Table styling */
         .table {
             margin-bottom: 0; /* Remove default bottom margin inside card */
@@ -102,6 +190,7 @@
             background-color: #f8f9fa;
             border-bottom-width: 1px;
             padding: 0.5rem 0.75rem; /* Adjust padding */
+            color: #495057;
         }
         .table tbody td {
             font-size: 0.9rem;
@@ -116,17 +205,34 @@
         .meeting-details {
             font-size: 0.85rem; /* Smaller font for meetings */
             white-space: normal; /* Allow wrapping */
+            color: #495057; /* Slightly muted color */
         }
+        /* Status badge styling */
+        .status-badge {
+            padding: 0.25em 0.6em;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 0.375rem;
+            white-space: nowrap;
+        }
+        .status-open { background-color: #d1e7dd; color: #0f5132; } /* Bootstrap success */
+        .status-waitl { background-color: #fff3cd; color: #664d03; } /* Bootstrap warning */
+        .status-full { background-color: #f8d7da; color: #842029; } /* Bootstrap danger */
+        .status-newonly { background-color: #cfe2ff; color: #0a3678; } /* Bootstrap info */
+        .status-unknown { background-color: #e2e3e5; color: #41464b; } /* Bootstrap secondary */
+
         /* No sections message */
-        .no-sections-message {
-            padding: 1rem 1.25rem;
+        .no-sections-message, .error-message, .empty-tab-message {
+            padding: 1.5rem 1.25rem;
             color: #6c757d; /* Muted text color */
+            text-align: center;
+            font-style: italic;
         }
         /* Error message styling */
         .error-message {
-             padding: 1rem 1.25rem;
              color: #dc3545; /* Danger color */
              font-weight: 500;
+             font-style: normal;
         }
         /* Responsive adjustments */
         @media (max-width: 767px) {
@@ -139,6 +245,7 @@
                 border: 1px solid #dee2e6;
                 border-radius: 0.5rem;
                 padding: 0.5rem;
+                background-color: #fff; /* Ensure background for stacking */
             }
             .table tbody td {
                 display: block;
@@ -146,6 +253,7 @@
                 padding: 0.4rem 0.75rem;
                 border: none; /* Remove internal borders */
                 position: relative;
+                min-height: 1.5em; /* Ensure space for label */
             }
             .table tbody td::before {
                 content: attr(data-label); /* Use data-label for pseudo-header */
@@ -154,6 +262,20 @@
                 font-weight: 600;
                 text-align: left;
                 white-space: nowrap;
+                color: #495057;
+            }
+            .meeting-details {
+                text-align: right; /* Ensure meeting details align right */
+            }
+            .status-badge {
+                 display: inline-block; /* Ensure badge flows correctly */
+                 margin-top: 2px;
+            }
+             .collapse-controls {
+                text-align: center; /* Center buttons on small screens */
+            }
+            .collapse-controls .btn {
+                margin: 0.25rem; /* Add some spacing between buttons */
             }
         }
     </style>
@@ -215,12 +337,49 @@
             <div class="progress">
                 <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
+             <p class="progress-text text-center mt-2">Searching... Pasting many courses may take a while.</p>
         </div>
 
         <div id="alertArea" class="mt-4"></div>
 
-        <div class="results-area" id="resultsArea">
+        <div class="results-area d-none" id="resultsArea">
+
+             <div class="collapse-controls">
+                 <button class="btn btn-sm btn-outline-secondary" id="expandAllBtn">
+                     <i class="fas fa-plus-square me-1"></i>Expand All
+                 </button>
+                 <button class="btn btn-sm btn-outline-secondary ms-2" id="collapseAllBtn">
+                     <i class="fas fa-minus-square me-1"></i>Collapse All
+                 </button>
+             </div>
+
+            <ul class="nav nav-tabs" id="filterTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="available-tab" data-bs-toggle="tab" data-bs-target="#available-courses" type="button" role="tab" aria-controls="available-courses" aria-selected="true">
+                   <i class="fas fa-check-circle me-1 text-success"></i> Available Only
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="unavailable-tab" data-bs-toggle="tab" data-bs-target="#unavailable-courses" type="button" role="tab" aria-controls="unavailable-courses" aria-selected="false">
+                    <i class="fas fa-times-circle me-1 text-danger"></i> Unavailable Only
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="all-tab" data-bs-toggle="tab" data-bs-target="#all-courses" type="button" role="tab" aria-controls="all-courses" aria-selected="false">
+                   <i class="fas fa-list me-1"></i> Show All
+                </button>
+              </li>
+            </ul>
+
+            <div class="tab-content pt-3" id="filterTabContent">
+              <div class="tab-pane fade show active" id="available-courses" role="tabpanel" aria-labelledby="available-tab">
+                </div>
+              <div class="tab-pane fade" id="unavailable-courses" role="tabpanel" aria-labelledby="unavailable-tab">
+                </div>
+              <div class="tab-pane fade" id="all-courses" role="tabpanel" aria-labelledby="all-tab">
+                </div>
             </div>
+        </div>
 
     </div> <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 
@@ -228,9 +387,17 @@
         // Get references to DOM elements
         const courseForm = document.getElementById('courseForm');
         const progressContainer = document.querySelector('.progress-container');
+        const progressBar = progressContainer.querySelector('.progress-bar');
+        const progressText = progressContainer.querySelector('.progress-text');
         const resultsArea = document.getElementById('resultsArea');
         const alertArea = document.getElementById('alertArea');
         const yearInput = document.getElementById('year');
+        const allCoursesPane = document.getElementById('all-courses');
+        const availableCoursesPane = document.getElementById('available-courses');
+        const unavailableCoursesPane = document.getElementById('unavailable-courses');
+        const filterTabs = document.getElementById('filterTabs');
+        const expandAllBtn = document.getElementById('expandAllBtn'); // Added
+        const collapseAllBtn = document.getElementById('collapseAllBtn'); // Added
 
         // Set default year to current year
         yearInput.value = new Date().getFullYear();
@@ -259,47 +426,77 @@
         }
 
         /**
+         * Gets a CSS class for styling the status badge based on the status text.
+         * @param {string} status - The section status text (e.g., 'Open', 'Waitl', 'FULL').
+         * @returns {string} The CSS class for the badge.
+         */
+        function getStatusBadgeClass(status) {
+            const lowerStatus = status ? status.toLowerCase() : 'unknown'; // Handle null/undefined status
+            if (lowerStatus === 'open') return 'status-open';
+            if (lowerStatus === 'waitl') return 'status-waitl';
+            if (lowerStatus === 'full') return 'status-full';
+            if (lowerStatus === 'newonly') return 'status-newonly';
+            return 'status-unknown'; // Default for 'Unknown' or other statuses
+        }
+
+
+        /**
          * Creates an HTML table row for a section.
          * @param {object} section - The section data object.
          * @returns {HTMLTableRowElement} The created table row element.
          */
         function createSectionRow(section) {
             const row = document.createElement('tr');
+            const statusBadgeClass = getStatusBadgeClass(section.status);
             // Add data-label attributes for responsive view
             row.innerHTML = `
-                <td data-label="Code">${section.code}</td>
-                <td data-label="Instructors">${section.instructors}</td>
-                <td data-label="Status">${section.status}</td>
-                <td data-label="Meetings" class="meeting-details">${section.meetings.join('<br>')}</td>
-                <td data-label="Units">${section.units}</td>
+                <td data-label="Code">${section.code || 'N/A'}</td>
+                <td data-label="Instructors">${section.instructors || 'TBA'}</td>
+                <td data-label="Status"><span class="badge ${statusBadgeClass} status-badge">${section.status || 'Unknown'}</span></td>
+                <td data-label="Meetings" class="meeting-details">${section.meetings && section.meetings.length > 0 ? section.meetings.join('<br>') : 'TBA'}</td>
+                <td data-label="Units">${section.units || 'N/A'}</td>
             `;
-            // Add styling based on status (optional)
-            if (section.status === 'Open') {
-                row.classList.add('table-success'); // Example: Highlight open sections
-            } else if (section.status === 'Waitl') {
-                 row.classList.add('table-warning'); // Example: Highlight waitlisted sections
-            } else if (section.status === 'FULL') {
-                row.classList.add('table-danger'); // Example: Highlight full sections
-            }
             return row;
         }
 
         /**
          * Creates an HTML card element to display a course and its sections, grouped by type.
+         * This card is collapsible and styled based on availability.
          * @param {object} course - The course data object, including grouped sections.
+         * @param {string} idPrefix - A unique prefix for element IDs within this card.
          * @returns {HTMLDivElement} The created card element.
          */
-        function createCourseCard(course) {
+        function createCourseCard(course, idPrefix) {
             const courseCard = document.createElement('div');
-            courseCard.className = 'card course-card';
+            const isAvailable = isCourseAvailable(course); // Check availability
+            courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`; // Add class if available
 
-            // Card Header (Course Name)
+            // Generate unique IDs for collapse elements
+            const collapseId = `${idPrefix}-collapse`;
+            const headerId = `${idPrefix}-header`;
+
+            // Card Header (Clickable Trigger)
             const cardHeader = document.createElement('div');
-            cardHeader.className = 'card-header';
-            cardHeader.textContent = course.course;
+            cardHeader.className = 'card-header collapsed'; // Start collapsed
+            cardHeader.setAttribute('data-bs-toggle', 'collapse');
+            cardHeader.setAttribute('data-bs-target', `#${collapseId}`);
+            cardHeader.setAttribute('aria-expanded', 'false'); // Initially collapsed
+            cardHeader.setAttribute('aria-controls', collapseId);
+            cardHeader.id = headerId;
+            // Add course name and the collapse arrow icon
+            cardHeader.innerHTML = `
+                ${course.course || 'Unknown Course'}
+                <i class="fas fa-chevron-down collapse-arrow"></i>
+            `;
             courseCard.appendChild(cardHeader);
 
-            // Card Body (Sections grouped by type)
+            // Collapsible Wrapper Div for Card Body Content
+            const collapseWrapper = document.createElement('div');
+            collapseWrapper.id = collapseId;
+            collapseWrapper.className = 'collapse card-body-wrapper'; // Add 'collapse', remove 'show' to start collapsed
+            collapseWrapper.setAttribute('aria-labelledby', headerId);
+
+            // Inner Card Body (holds the actual content: tables, messages)
             const cardBody = document.createElement('div');
             cardBody.className = 'card-body'; // Keep card-body class for structure if needed
 
@@ -311,7 +508,7 @@
                  cardBody.appendChild(errorMsg);
             }
             // Check if there are any sections at all
-            else if (Object.keys(course.sections).length === 0) {
+            else if (!course.sections || Object.keys(course.sections).length === 0) {
                 const noSectionsMsg = document.createElement('p');
                 noSectionsMsg.className = 'no-sections-message';
                 noSectionsMsg.textContent = 'No sections found for this term.';
@@ -319,31 +516,26 @@
             } else {
                 // Get section types and sort them (e.g., Lec, Dis, Lab)
                 const sectionTypes = Object.keys(course.sections).sort((a, b) => {
-                    // Define a preferred order
-                    const order = { 'Lec': 1, 'Dis': 2, 'Lab': 3, 'Sem': 4, 'Tut': 5 };
-                    return (order[a] || 99) - (order[b] || 99); // Put known types first, then others alphabetically
+                    const order = { 'Lec': 1, 'Dis': 2, 'Lab': 3, 'Sem': 4, 'Tut': 5, 'Qiz': 6, 'Fld': 7, 'Res': 8, 'Stu': 9, 'Act': 10, 'Col': 11 };
+                    const orderA = order[a] || 99;
+                    const orderB = order[b] || 99;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return a.localeCompare(b);
                 });
 
-                // Iterate through each section type (Lec, Dis, Lab, etc.)
+                // Iterate through each section type
                 sectionTypes.forEach(type => {
                     const sectionsOfType = course.sections[type];
+                    if (!sectionsOfType || sectionsOfType.length === 0) return; // Skip if type has no sections
 
-                    // Add a heading for the section type
                     const typeHeader = document.createElement('h6');
                     typeHeader.className = 'section-type-header';
-                    // Map common abbreviations to full names
-                    const typeNameMap = {
-                        'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs',
-                        'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork',
-                        'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity',
-                        'Col': 'Colloquium', 'Qiz': 'Quiz Section'
-                    };
-                    typeHeader.textContent = typeNameMap[type] || type; // Use full name or original type
+                    const typeNameMap = { 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
+                    typeHeader.textContent = typeNameMap[type] || type;
                     cardBody.appendChild(typeHeader);
 
-                    // Create a table for sections of this type
                     const table = document.createElement('table');
-                    table.className = 'table table-hover table-sm'; // Use table-sm for tighter spacing
+                    table.className = 'table table-hover table-sm';
                     const thead = document.createElement('thead');
                     thead.innerHTML = `
                         <tr>
@@ -365,101 +557,187 @@
                 });
             }
 
-            courseCard.appendChild(cardBody);
+            collapseWrapper.appendChild(cardBody);
+            courseCard.appendChild(collapseWrapper);
+
             return courseCard;
         }
 
         /**
-         * Displays the fetched and processed course results in the results area.
+         * Checks if a course has at least one section with 'Open' status.
+         * @param {object} course - The course data object.
+         * @returns {boolean} True if at least one section is open, false otherwise.
+         */
+        function isCourseAvailable(course) {
+            if (!course || !course.sections || Object.keys(course.sections).length === 0) {
+                return false; // No sections means unavailable
+            }
+            for (const type in course.sections) {
+                if (Array.isArray(course.sections[type])) {
+                    for (const section of course.sections[type]) {
+                        if (section && section.status && section.status.toLowerCase() === 'open') {
+                            return true; // Found an open section
+                        }
+                    }
+                }
+            }
+            return false; // No open sections found
+        }
+
+
+        /**
+         * Displays the fetched and processed course results in the appropriate filter tabs.
          * @param {Array<object>} results - An array of course objects.
          */
         function displayResults(results) {
-            // Clear previous results and hide progress bar
-            resultsArea.innerHTML = '';
-            progressContainer.classList.add('d-none');
+            // Clear previous results from all panes
+            allCoursesPane.innerHTML = '';
+            availableCoursesPane.innerHTML = '';
+            unavailableCoursesPane.innerHTML = '';
+            progressContainer.classList.add('d-none'); // Hide progress bar
+
+            const defaultEmptyMessage = '<p class="empty-tab-message">No courses found matching your criteria.</p>';
 
             if (!results || results.length === 0) {
-                resultsArea.innerHTML = '<p class="text-center text-muted mt-4">No courses found matching your input.</p>';
+                allCoursesPane.innerHTML = defaultEmptyMessage;
+                availableCoursesPane.innerHTML = defaultEmptyMessage;
+                unavailableCoursesPane.innerHTML = defaultEmptyMessage;
+                resultsArea.classList.remove('d-none'); // Show the results area (with tabs)
+                // Ensure 'Available' tab is active (even if empty)
+                bootstrap.Tab.getOrCreateInstance(document.getElementById('available-tab')).show();
                 return;
             }
 
-            // Create and append cards for each course
-            results.forEach(course => {
-                resultsArea.appendChild(createCourseCard(course));
+            let availableCount = 0;
+            let unavailableCount = 0;
+
+            // Create and append cards to the correct panes
+            results.forEach((course, index) => {
+                const isAvailable = isCourseAvailable(course);
+                // Generate unique ID prefixes for each card instance across tabs
+                const allIdPrefix = `all-${index}`;
+                const availIdPrefix = `avail-${index}`;
+                const unavailIdPrefix = `unavail-${index}`;
+
+                // Always add to the "All" tab
+                allCoursesPane.appendChild(createCourseCard(course, allIdPrefix));
+
+                // Add to the specific filter tabs
+                if (isAvailable) {
+                    availableCoursesPane.appendChild(createCourseCard(course, availIdPrefix));
+                    availableCount++;
+                } else {
+                    unavailableCoursesPane.appendChild(createCourseCard(course, unavailIdPrefix));
+                    unavailableCount++;
+                }
+            });
+
+             // Add messages if specific tabs are empty
+            if (availableCount === 0) {
+                availableCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with open sections found.</p>';
+            }
+            if (unavailableCount === 0) {
+                unavailableCoursesPane.innerHTML = '<p class="empty-tab-message">No unavailable courses found (all found courses have open sections or no sections listed).</p>';
+            }
+             if (results.length === 0) { // Fallback
+                 allCoursesPane.innerHTML = '<p class="empty-tab-message">No courses found matching your input.</p>';
+             }
+
+
+            // Show the results area (tabs and content)
+            resultsArea.classList.remove('d-none');
+
+             // Set the 'Available Only' tab as active by default after loading results
+             bootstrap.Tab.getOrCreateInstance(document.getElementById('available-tab')).show();
+        }
+
+        /**
+         * Handles expanding or collapsing all course cards within the active tab.
+         * @param {boolean} expand - True to expand, false to collapse.
+         */
+        function toggleAllCourses(expand) {
+            const activePane = document.querySelector('.tab-pane.active');
+            if (!activePane) return;
+
+            const collapseElements = activePane.querySelectorAll('.collapse'); // Get the content wrappers
+
+            collapseElements.forEach(el => {
+                const instance = bootstrap.Collapse.getOrCreateInstance(el);
+                if (expand) {
+                    instance.show();
+                } else {
+                    instance.hide();
+                }
             });
         }
 
-        // --- Event Listener for Form Submission ---
+
+        // --- Event Listeners ---
+
+        // Form Submission
         courseForm.addEventListener('submit', async function(e) {
-            e.preventDefault(); // Prevent default form submission
-            clearAlert(); // Clear previous errors
+            e.preventDefault();
+            clearAlert();
+            resultsArea.classList.add('d-none'); // Hide results until ready
 
-            // Show progress bar and clear previous results
+            progressText.textContent = 'Searching... Pasting many courses may take a while.';
             progressContainer.classList.remove('d-none');
-            resultsArea.innerHTML = '<p class="text-center text-muted mt-4">Searching for courses...</p>'; // Initial message
 
-            // Get form data
             const formData = {
                 input_text: document.getElementById('inputText').value.trim(),
                 year: yearInput.value,
                 quarter: document.getElementById('quarter').value
             };
 
-            // Basic client-side validation (redundant with server-side but good UX)
             if (!formData.input_text || !formData.year || !formData.quarter) {
                 showAlert('Please fill in all fields.');
                 progressContainer.classList.add('d-none');
-                resultsArea.innerHTML = '';
+                return;
+            }
+            if (!/^\d{4}$/.test(formData.year)) {
+                showAlert('Please enter a valid 4-digit year.');
+                progressContainer.classList.add('d-none');
                 return;
             }
 
             try {
-                // Send data to the backend '/process' endpoint
                 const response = await fetch('/process', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData) // Convert JS object to JSON string
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
                 });
 
-                // Check if the response status is OK (e.g., 200)
                 if (!response.ok) {
-                     // Try to parse error message from backend JSON response
-                     let errorMsg = `HTTP error ${response.status}: ${response.statusText}`;
-                     try {
-                         const errorData = await response.json();
-                         if (errorData && errorData.error) {
-                             errorMsg = errorData.error;
-                         }
-                     } catch (jsonError) {
-                         // Ignore if response is not JSON
-                         console.error("Could not parse error response JSON:", jsonError);
-                     }
-                    throw new Error(errorMsg); // Throw error to be caught below
+                    let errorMsg = `HTTP error ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.error) errorMsg = errorData.error;
+                    } catch (jsonError) { console.error("Could not parse error response JSON:", jsonError); }
+                    throw new Error(errorMsg);
                 }
 
-                // Parse the JSON response from the backend
                 const data = await response.json();
 
-                // Check the status returned from the backend
                 if (data.status === 'complete') {
-                    displayResults(data.results); // Display the results
+                    displayResults(data.results);
                 } else {
-                    // Handle unexpected backend status
                     throw new Error(data.error || 'Received unexpected status from server.');
                 }
 
             } catch (error) {
-                // Catch errors from fetch or backend processing
                 console.error('Error during form submission:', error);
                 showAlert(`An error occurred: ${error.message}`);
-                resultsArea.innerHTML = ''; // Clear results area on error
+                resultsArea.classList.add('d-none'); // Keep results hidden on error
             } finally {
-                // Always hide the progress bar after completion or error
-                progressContainer.classList.add('d-none');
+                progressContainer.classList.add('d-none'); // Hide progress bar always
             }
         });
+
+        // Expand All Button
+        expandAllBtn.addEventListener('click', () => toggleAllCourses(true));
+
+        // Collapse All Button
+        collapseAllBtn.addEventListener('click', () => toggleAllCourses(false));
 
     </script>
 

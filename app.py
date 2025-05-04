@@ -29,7 +29,12 @@ def parse_courses(input_text):
             current_dept = token
         # If we have a current department context and the token is not a department code, treat it as a course number
         elif current_dept is not None:
-            courses.append((current_dept, token))
+            # Simple validation to avoid things like just '&' being treated as course number
+            if re.search(r'\d', token) or len(token) <= 3: # Allow short codes like '1A' or numbers
+                 courses.append((current_dept, token))
+            else:
+                 print(f"Skipping potentially invalid course number token: {token} under department {current_dept}")
+
         # Ignore tokens that appear before the first department code
     return courses
 
@@ -46,7 +51,7 @@ def get_sections(dept, num, year, quarter):
     }
     try:
         # Make the GET request to the API
-        r = requests.get(BASE_URL, params=params, timeout=10) # Added timeout
+        r = requests.get(BASE_URL, params=params, timeout=15) # Increased timeout slightly
         r.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
         data = r.json()
         # Check the 'ok' flag in the API response
@@ -55,9 +60,12 @@ def get_sections(dept, num, year, quarter):
             return []
         # Return the list of sections from the 'data' field, or an empty list if 'data' is missing/empty
         return data.get("data", [])
+    except requests.exceptions.Timeout:
+        print(f"Timeout error fetching {dept} {num}")
+        return []
     except requests.exceptions.RequestException as e:
         # Handle potential network errors, timeouts, or bad responses
-        print(f"Error fetching {dept} {num}: {e}")
+        print(f"Network/HTTP error fetching {dept} {num}: {e}")
         return []
     except Exception as e:
         # Catch any other unexpected errors during the request or JSON parsing
@@ -79,6 +87,7 @@ def process_courses(input_text, year, quarter):
     # Iterate through each parsed course (department and number)
     for dept, num in courses:
         processed_courses += 1
+        # Use print to show progress in the server console, not directly to user
         print(f"Searching for {dept} {num} ({processed_courses}/{total_courses})...")
 
         try:
@@ -93,39 +102,60 @@ def process_courses(input_text, year, quarter):
                 # Still add the course to results, but with empty grouped sections
                 results.append({
                     'course': f'{dept} {num}',
-                    'sections': {} # Use an empty dict for consistency
+                    'sections': {}, # Use an empty dict for consistency
+                    'error': None # Explicitly set error to None
                 })
                 continue # Move to the next course
 
             # Process each section found
             for sec in sections:
-                # Format meeting times into readable strings
+                # Format meeting times into readable strings - REFINED LOGIC
                 meeting_strings = []
                 for m in sec.get('meetings', []):
-                     # Handle potential variations in meeting data structure
-                    if isinstance(m, str): # If meeting is already a string
+                    if isinstance(m, str): # If meeting is already a string (e.g., "TBA")
                         meeting_strings.append(m)
-                    else:
-                        # Build the meeting string piece by piece, handling missing parts
-                        days = m.get('days') or m.get('dayOfWeek') or ''
-                        time_range = f"{m.get('beginTime') or m.get('startTime') or ''}-{m.get('endTime') or m.get('timeEnd') or ''}".strip('-')
-                        # Only add time range if it's not empty (e.g., not just '-')
-                        time_str = time_range if time_range else ''
-                        building = m.get('bldgName') or m.get('building') or ''
-                        room = f" {m.get('room')}" if m.get('room') else ''
-                        location = f"{building}{room}".strip()
+                        continue
 
-                        # Combine parts, filtering out empty ones
-                        parts = [part for part in [days, time_str, location] if part]
-                        meeting_strings.append(" ".join(parts).strip())
+                    # Extract parts, handling missing data using .get with defaults
+                    days = m.get('days') or m.get('dayOfWeek') or ''
+                    start_time = m.get('beginTime') or m.get('startTime') or ''
+                    end_time = m.get('endTime') or m.get('timeEnd') or ''
+                    building = m.get('bldgName') or m.get('building') or ''
+                    room = m.get('room', '') # Default to empty string if missing
 
+                    # Construct time string carefully
+                    time_str = ''
+                    if start_time and end_time:
+                        time_str = f"{start_time}-{end_time}"
+                    elif start_time:
+                        # Handle cases like only start time listed (less common)
+                        time_str = f"From {start_time}"
+                    elif end_time:
+                         # Handle cases like only end time listed (less common)
+                        time_str = f"Until {end_time}"
+                    # If both are missing, time_str remains empty
+
+                    # Construct location string
+                    location_str = f"{building} {room}".strip() if building else '' # Only add room if building exists
+
+                    # Combine parts, filtering out empty strings
+                    parts = [part for part in [days, time_str, location_str] if part]
+                    meeting_string = " ".join(parts).strip()
+
+                    # If all parts were empty, use meeting type or a default placeholder
+                    if not meeting_string:
+                        meeting_string = m.get('meetingType') or 'Details TBA' # e.g., 'ASYNC' or 'Details TBA'
+
+                    meeting_strings.append(meeting_string)
+                # END REFINED MEETING LOGIC
 
                 # Create the dictionary for the current section's details
                 section_data = {
                     'code': sec.get('sectionCode', 'N/A'), # Use .get for safety
                     'type': sec.get('sectionType', 'N/A'),
                     'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
-                    'status': sec.get('statusHistory', ['Unknown'])[-1], # Get last status or default
+                    # Safely access the last element of statusHistory or provide 'Unknown'
+                    'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
                     'meetings': meeting_strings, # Use the formatted meeting strings
                     'units': sec.get('units', 'N/A')
                 }
@@ -135,18 +165,21 @@ def process_courses(input_text, year, quarter):
             # Append the course details and its grouped sections to the overall results list
             results.append({
                 'course': f'{dept} {num}',
-                'sections': dict(grouped_sections) # Convert defaultdict back to regular dict for JSON
+                'sections': dict(grouped_sections), # Convert defaultdict back to regular dict for JSON
+                'error': None # No error for this course
             })
 
             print(f"Found sections for {dept} {num}, grouped by type.")
 
         except Exception as e:
             # Catch unexpected errors during section processing for a specific course
+            import traceback
             print(f"Error processing {dept} {num}: {str(e)}")
+            print(traceback.format_exc()) # Print full traceback for debugging
             results.append({
                 'course': f'{dept} {num}',
                 'sections': {}, # Empty dict for consistency
-                'error': f"Failed to process sections: {str(e)}"
+                'error': f"Failed to process sections: {str(e)}" # Include error message
             })
 
     return results
@@ -167,19 +200,25 @@ def process():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'error': 'Invalid JSON payload'}), 400
+            return jsonify({'error': 'Invalid JSON payload received.'}), 400
 
         input_text = data.get('input_text', '')
         year = data.get('year', '')
         quarter = data.get('quarter', '')
 
-        # Basic validation
-        if not all([input_text, year, quarter]):
-             return jsonify({'error': 'Missing required fields (input_text, year, quarter)'}), 400
+        # Basic server-side validation
+        if not input_text:
+             return jsonify({'error': 'DegreeWorks string cannot be empty.'}), 400
+        if not year:
+             return jsonify({'error': 'Year cannot be empty.'}), 400
+        if not quarter:
+             return jsonify({'error': 'Quarter cannot be empty.'}), 400
         if not year.isdigit() or len(year) != 4:
              return jsonify({'error': 'Invalid year format. Please use YYYY.'}), 400
-        if quarter not in ["Fall", "Winter", "Spring", "Summer"]:
-             return jsonify({'error': 'Invalid quarter selected.'}), 400
+        # Allow more specific summer quarters if needed by API
+        valid_quarters = ["Fall", "Winter", "Spring", "Summer", "Summer1", "Summer10wk", "Summer2"]
+        if quarter not in valid_quarters:
+             return jsonify({'error': f'Invalid quarter selected. Choose from: {", ".join(valid_quarters)}'}), 400
 
 
         # Process the courses using the updated function
@@ -192,8 +231,11 @@ def process():
         })
     except Exception as e:
         # Catch any errors during request handling or processing
+        import traceback
         print(f"Error in /process route: {e}")
-        return jsonify({'error': 'An internal server error occurred.'}), 500
+        print(traceback.format_exc()) # Log full traceback
+        # Provide a generic error message to the user
+        return jsonify({'error': 'An unexpected error occurred on the server. Please try again later.'}), 500
 
 # Run the Flask app
 if __name__ == '__main__':
