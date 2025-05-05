@@ -1,10 +1,10 @@
-# 🚀 DegreeWorks Course Finder: Your Shortcut to the Perfect Schedule! 🚀
+# DegreeWorks Course Finder: Your Shortcut to the Perfect Schedule!
 
 Tired of endlessly clicking through course catalogs, trying to match your DegreeWorks requirements with open sections? **Say goodbye to the tedious manual search!** The DegreeWorks Course Finder is here to revolutionize how you plan your academic term.
 
 Simply paste your requirement string from DegreeWorks, select your term, and instantly see all matching available sections neatly organized. **No more needing to search each course one by one** – find what you need, fast!
 
-## ✨ Features That Shine ✨
+## ✨ Features
 
 * **Effortless Input:** Just copy and paste your course requirement string directly from DegreeWorks.
 * **Term Selection:** Easily choose the specific year and quarter (Fall, Winter, Spring, Summer Sessions) you're planning for.
@@ -16,14 +16,13 @@ Simply paste your requirement string from DegreeWorks, select your term, and ins
 * **Responsive Design:** Looks and works great on desktop, tablet, or mobile. Plan your schedule anywhere!
 * **Real-time Progress:** A subtle indicator lets you know the search is underway.
 
-## 🛠️ Get Up and Running 🛠️
+## 🛠️ Get Up and Running
 
 Setting up is a breeze:
-
 1.  **Clone the Repository:**
     ```bash
-    git clone <your-repository-url>
-    cd Degreeworks-Grabber # Or your project directory name
+    git clone https://github.com/DarrenZhao01/Degreeworks-Grabber.git
+    cd Degreeworks-Grabber
     ```
 2.  **Install Dependencies:** Make sure you have Python 3.7+ installed, then run:
     ```bash
@@ -38,10 +37,14 @@ Setting up is a breeze:
 
 ## How to Use
 
-1.  **Paste:** Copy the course requirement string from your DegreeWorks audit (e.g., `COMPSCI 111, 121, 161, STATS 67, 68`). Paste it into the text area.
+1.  **Copy and Paste:** Copy the course requirement string from your DegreeWorks audit (e.g., `COMPSCI 111, 121, 161, STATS 67, 68`). Paste it into the text area.
+![Step One](./assets/img/step-one.png)
 2.  **Select:** Choose the correct Year and Quarter.
+
 3.  **Click:** Hit the "Find Courses" button.
+
 4.  **View & Filter:** Explore the results! Use the tabs ("Available Only", "Unavailable Only", "Show All") to filter courses. Click on any course header to expand or collapse its details. Use the "Expand All" / "Collapse All" buttons to manage the view for the current tab.
+
 
 ## Requirements
 
@@ -52,4 +55,4 @@ Setting up is a breeze:
 
 ---
 
-Spend less time searching and more time learning. Happy scheduling!
+Spend less time searching and more time building your schedule. Happy scheduling!
