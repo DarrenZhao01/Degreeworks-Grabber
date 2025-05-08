@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to Use Course Finder</title>
+    <link rel="stylesheet" href="/static/tutorial_styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>How to Use the Course Finder</h1>
+
+        <div class="step">
+            <p><span class="step-number">Step 1:</span> <strong>Enter Your Course String</strong></p>
+            <img src="/static/assets/img/step-one.png" alt="Step 1" class="img-fluid">
+            <p>In the main input box labeled "Enter DegreeWorks String", paste or type the course information directly from DegreeWorks.
+               The application is designed to understand strings like <code>"1 Class in ANTHRO 2A, 20A, ARABIC 2A, 2B"</code> or simpler forms like <code>"COMPSCI 111, 121, I&C SCI 31"</code>.
+            </p>
+            <p><b>Note:</b> Processing time is dependent on the number of courses you have. For example, processing 10 courses takes around 30 seconds, and processing 20 courses takes around 1 minute.</p>
+            <p>The parser can handle:
+                <ul>
+                    <li>Courses from different departments in one string.</li>
+                    <li>Multi-word department names (e.g., <code>I&C SCI</code>).</li>
+                    <li>Various spacing and formatting inconsistencies.</li>
+                    <li>Common prefixes like "X Class(es) in" will be automatically ignored.</li>
+                </ul>
+            </p>
+        </div>
+
+        <div class="step">
+            <p><span class="step-number">Step 2:</span> <strong>Select Year and Quarter</strong></p>
+            <p>Use the dropdown menus to select the academic <strong>Year</strong> (e.g., <code>2024</code>) and the specific <strong>Quarter</strong> (e.g., <code>Fall</code>, <code>Winter</code>, <code>Spring</code>, <code>Summer1</code>, etc.) for which you want to find course sections.</p>
+        </div>
+
+        <div class="step">
+            <p><span class="step-number">Step 3:</span> <strong>Submit Your Query</strong></p>
+            <p>Click the "Find Sections" button. The application will then start processing your request.</p>
+        </div>
+
+        <div class="step">
+            <p><span class="step-number">Step 4:</span> <strong>View Results</strong></p>
+            <p>As the application fetches data, you'll see real-time updates:
+                <ul>
+                    <li>A progress bar will show the overall search progress.</li>
+                    <li>Log messages will indicate which course is currently being searched or if any errors occur for a specific course.</li>
+                    <li>Once complete, the results will be displayed below. For each course, you'll see:
+                        <ul>
+                            <li>The course name (e.g., <code>ANTHRO 2A</code>).</li>
+                            <li>Sections grouped by type (Lecture, Discussion, Lab, etc.).</li>
+                            <li>For each section: section code, type, instructor(s), status (e.g., OPEN, FULL), meeting times and locations, and units.</li>
+                            <li>If an error occurred while fetching data for a specific course (e.g., API timeout, course not found for the selected term), an error message will be shown for that course.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </p>
+            <p>If no sections are found for a course in the selected term, it will be indicated.</p>
+        </div>
+
+        <h2>Troubleshooting Common Issues</h2>
+        <ul>
+            <li><strong>"Invalid input provided" / "Missing required fields"</strong>: Ensure you have filled in the course string, selected a year, and chosen a quarter.</li>
+            <li><strong>"Invalid year format"</strong>: Make sure the year is a 4-digit number (e.g., <code>2024</code>).</li>
+            <li><strong>"Error parsing the course string" / "No valid courses could be parsed"</strong>:
+                <ul>
+                    <li>Check your input string for typos.</li>
+                    <li>Ensure course numbers are present after department names. For example, <code>COMPSCI</code> alone is not enough; it needs a number like <code>COMPSCI 111</code>.</li>
+                    <li>The system tries its best with complex strings, but extremely unusual formatting might cause issues. Try simplifying the string if problems persist.</li>
+                </ul>
+            </li>
+            <li><strong>API Errors (e.g., "timed out", "returned no data", "HTTP error")</strong>: These errors usually mean there was a problem contacting the external course API. This could be due to a temporary issue with the API itself, network problems, or the requested course data not being available. Try again later. If the issue persists for many courses, the API service might be down.</li>
+        </ul>
+
+        <p style="text-align: center; margin-top: 30px;">
+            <a href="/">Back to Course Finder</a>
+        </p>
+    </div>
+</body>
+</html> 
