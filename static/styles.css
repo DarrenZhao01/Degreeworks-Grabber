@@ -155,6 +155,10 @@ body {
     color: #0a58ca; /* Darker blue on hover */
 }
 
+.search-container {
+    margin-bottom: 2rem;
+}
+
 /* Remove the old course title link style */
 /*
 .course-card .card-header a.course-title-link {
