@@ -456,30 +456,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
                     
-                    if (done) {
-                        console.log("Stream finished.");
-                        // Clean up references
-                        if (currentReader === reader) {
-                            currentReader = null;
-                        }
-                        // Handle case where stream finishes without a 'complete' message?
-                        // This might happen if the connection drops or server terminates unexpectedly.
-                        // If no 'complete' message was received and results area is still hidden, show an alert.
-                        if (resultsArea && resultsArea.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
-                             showAlert("The connection closed before processing completed. Please try again.", "warning");
-                        }
-                         // Ensure progress is hidden even if stream ends unexpectedly
-                        if(progressContainer) progressContainer.classList.add('d-none');
-                        return;
+                    if (value) { // Always process value if present, before checking 'done'
+                        accumulatedData += value;
                     }
 
-                    accumulatedData += value;
-                    // Process messages separated by double newlines (\n\n)
+                    // Process all complete messages in accumulatedData
+                    // This loop will run if there's data, and will also run one last time if 'done' is true and there was residual data.
                     let boundary = accumulatedData.indexOf('\n\n');
                     while (boundary >= 0) {
                         const message = accumulatedData.substring(0, boundary).trim();
                         accumulatedData = accumulatedData.substring(boundary + 2); // Skip \n\n
-
                         if (message.startsWith('data:')) {
                             const jsonData = message.substring(5).trim(); // Remove 'data:' prefix
                             try {
@@ -514,8 +500,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                     }
                                     // Pass the stored year and quarter to the display function
                                     displayFinalResults(eventData.results, currentYear, currentQuarter);
-                                    // Stream should close automatically after this
-                                    return; // Stop processing further chunks for this branch
+                                    // Ensure progress is hidden once 'complete' is processed
+                                    if(progressContainer) progressContainer.classList.add('d-none');
+                                    // The stream will naturally end when 'done' is true. 
+                                    // We don't return here, let the 'done' block handle final reader state.
                                 } else if (eventData.type === 'error') {
                                      console.error("Received error from server stream:", eventData.message);
                                      showAlert(`Server error: ${eventData.message}`, 'danger');
@@ -526,7 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                          currentReader = null;
                                      }
                                      
-                                     reader.cancel().catch(e => console.warn("Error cancelling reader:", e)); // Attempt to cancel the stream reader
+                                     reader.cancel("Server error received").catch(e => console.warn("Error cancelling reader on server error:", e)); // Attempt to cancel the stream reader
                                      return; // Stop processing
                                 }
                             } catch (e) {
@@ -535,13 +523,28 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         } else if (message.startsWith('event:') || message.startsWith('id:') || message.startsWith('retry:')) {
                              // Ignore other SSE fields for now
-                        } else if (message) {
+                        } else if (message) { // Non-empty message that isn't 'data:'
                              console.warn("Received non-standard SSE line:", message);
                         }
                         boundary = accumulatedData.indexOf('\n\n'); // Look for next message
                     }
 
-                    // Continue reading the stream
+                    if (done) {
+                        console.log("Stream finished (done is true).");
+                        if (currentReader === reader) {
+                            currentReader = null;
+                        }
+                        // After attempting to process any final accumulated data,
+                        // check if results were actually displayed (i.e., 'complete' was handled).
+                        if (resultsArea && resultsArea.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
+                             showAlert("The connection closed before processing completed. Please try again.", "warning");
+                        }
+                         // Ensure progress is hidden even if stream ends unexpectedly or normally.
+                        if(progressContainer) progressContainer.classList.add('d-none');
+                        return;
+                    }
+
+                    // Continue reading the stream if not done
                     return reader.read().then(processStream);
                 }
 

@@ -5,6 +5,7 @@ import re
 import json
 import time
 from collections import defaultdict
+import concurrent.futures
 
 # --- Custom Exception Classes ---
 
@@ -249,81 +250,133 @@ def stream_process():
 
 
     def generate_updates(course_list, req_year, req_quarter):
-        all_results_data = [] 
+        all_results_data = []
         try:
             total_courses = len(course_list)
             if total_courses == 0:
                 app.logger.info("No courses to process after parsing.")
-                # Yield complete immediately if no courses
-                yield f"data: {json.dumps({'type': 'complete', 'results': []})}\n\n"
+                # Send with literal newlines to ensure proper formatting
+                yield "data: " + json.dumps({'type': 'complete', 'results': []}) + "\n\n"
                 return
 
             processed_courses_count = 0
             app.logger.info(f"Starting to generate updates for {total_courses} courses.")
 
-            for dept, num in course_list:
-                processed_courses_count += 1
-                progress = int((processed_courses_count / total_courses) * 100)
-                log_message_for_client = f"Searching for {dept} {num} ({processed_courses_count}/{total_courses})..."
-                
-                app.logger.info(f"Client log: {log_message_for_client}") # Server log of what's sent
-                yield f"data: {json.dumps({'type': 'progress', 'value': progress, 'message': log_message_for_client})}\n\n"
+            # Send initial progress update
+            init_message = json.dumps({'type': 'progress', 'value': 0, 'message': "Starting search..."})
+            yield f"data: {init_message}\n\n"
 
-                course_result = {'course': f'{dept} {num}', 'sections': {}, 'error': None}
-                api_error_message = None 
+            # Use ThreadPoolExecutor for concurrent API calls
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, total_courses or 1)) as executor:
+                future_to_course = {
+                    executor.submit(get_sections, dept, num, req_year, req_quarter): (dept, num)
+                    for dept, num in course_list
+                }
+                pending_futures = list(future_to_course.keys())
+                KEEP_ALIVE_INTERVAL = 15.0  # seconds to wait before sending a keep-alive
 
-                try:
-                    sections = get_sections(dept, num, req_year, req_quarter)
+                while pending_futures:
+                    # Wait for any future to complete, or for the timeout
+                    done_futures, pending_futures = concurrent.futures.wait(
+                        pending_futures,
+                        timeout=KEEP_ALIVE_INTERVAL,
+                        return_when=concurrent.futures.FIRST_COMPLETED
+                    )
 
-                    if not sections:
-                        log_message_for_client = f"No sections found for {dept} {num}."
-                    else:
-                        grouped_sections = defaultdict(list)
-                        for sec in sections:
-                            meeting_strings = [format_meeting_string(m) for m in sec.get('meetings', [])]
-                            section_data = {
-                                'code': sec.get('sectionCode', 'N/A'),
-                                'type': sec.get('sectionType', 'N/A'),
-                                'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
-                                'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
-                                'meetings': meeting_strings,
-                                'units': sec.get('units', 'N/A')
-                            }
-                            grouped_sections[section_data['type']].append(section_data)
-                        course_result['sections'] = dict(grouped_sections)
-                        log_message_for_client = f"Processed {dept} {num}."
+                    if not done_futures:
+                        # Timeout hit, no futures completed in this interval
+                        app.logger.info("Sending SSE keep-alive event (event: keepalive).")
+                        # Use explicit newlines instead of escaping
+                        ping_data = json.dumps({'message': 'ping', 'timestamp': time.time()})
+                        yield f"event: keepalive\ndata: {ping_data}\n\n"
+                        continue # Continue to the next iteration of the while loop to wait again
 
-                except (APIError, APITimeoutError, APINoDataError) as e:
-                     api_error_message = str(e)
-                     log_message_for_client = f"Error for {dept} {num}: {api_error_message}"
-                     course_result['error'] = api_error_message 
-                     app.logger.warning(f"API Error for {dept} {num} during stream generation: {e}")
-                
-                all_results_data.append(course_result)
-                app.logger.info(f"Client log: {log_message_for_client}") # Server log of what's sent
-                yield f"data: {json.dumps({'type': 'log', 'message': log_message_for_client})}\n\n"
-                time.sleep(0.1) 
+                    # Process completed futures
+                    for future in done_futures:
+                        dept, num = future_to_course[future]
+                        processed_courses_count += 1
+                        progress = int((processed_courses_count / total_courses) * 100)
+                        log_message_for_client = f"Fetching data for {dept} {num} ({processed_courses_count}/{total_courses})..."
+
+                        app.logger.info(f"Client log: {log_message_for_client}")
+                        prog_data = json.dumps({'type': 'progress', 'value': progress, 'message': log_message_for_client})
+                        yield f"data: {prog_data}\n\n"
+
+                        course_result = {'course': f'{dept} {num}', 'sections': {}, 'error': None}
+                        # api_error_message = None # This variable is set within the try/except block
+
+                        try:
+                            sections = future.result() # Get result from the future
+
+                            if not sections:
+                                log_message_for_client = f"No sections found for {dept} {num}."
+                            else:
+                                grouped_sections = defaultdict(list)
+                                for sec in sections:
+                                    meeting_strings = [format_meeting_string(m) for m in sec.get('meetings', [])]
+                                    section_data = {
+                                        'code': sec.get('sectionCode', 'N/A'),
+                                        'type': sec.get('sectionType', 'N/A'),
+                                        'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
+                                        'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
+                                        'meetings': meeting_strings,
+                                        'units': sec.get('units', 'N/A')
+                                    }
+                                    grouped_sections[section_data['type']].append(section_data)
+                                course_result['sections'] = dict(grouped_sections)
+                                log_message_for_client = f"Processed {dept} {num}."
+
+                        except (APIError, APITimeoutError, APINoDataError) as e:
+                            api_error_message = str(e)
+                            log_message_for_client = f"Error for {dept} {num}: {api_error_message}"
+                            course_result['error'] = api_error_message
+                            app.logger.warning(f"API Error for {dept} {num} during stream generation: {e}")
+                        except Exception as e: # Catch other exceptions from the future
+                            api_error_message = f"An unexpected error occurred while fetching {dept} {num}."
+                            log_message_for_client = f"Error for {dept} {num}: {api_error_message}"
+                            course_result['error'] = api_error_message
+                            app.logger.error(f"Unexpected error for {dept} {num} in thread: {e}", exc_info=True)
+
+                        all_results_data.append(course_result)
+                        app.logger.info(f"Client log: {log_message_for_client}")
+                        log_data = json.dumps({'type': 'log', 'message': log_message_for_client})
+                        yield f"data: {log_data}\n\n"
+                        # Removed time.sleep(0.1) as keep-alive handles responsiveness
+
+            # Sort all_results_data to match the original input order if necessary
+            original_order_map = {f"{dept} {num}": i for i, (dept, num) in enumerate(course_list)}
+            all_results_data.sort(key=lambda x: original_order_map.get(x['course'], float('inf')))
 
             app.logger.info("All courses processed. Sending 'complete' message.")
             completion_data = {"type": "complete", "results": all_results_data}
+            
+            # Send final complete message with literal newlines 
+            app.logger.info("Sending final complete message")
             yield f"data: {json.dumps(completion_data)}\n\n"
             app.logger.info("'complete' message sent.")
 
         except Exception as e:
             app.logger.error("Unexpected error during stream generation loop", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': 'An unexpected server error occurred during processing.'})}\n\n"
+            error_data = json.dumps({'type': 'error', 'message': 'An unexpected server error occurred during processing.'})
+            yield f"data: {error_data}\n\n"
             # Still send a 'complete' message with partial results to finalize the stream gracefully on the client
-            # This ensures the client doesn't hang indefinitely if an error occurs mid-stream.
             app.logger.info("Sending 'complete' message after unexpected error in generation loop.")
-            yield f"data: {json.dumps({'type': 'complete', 'results': all_results_data})}\n\n"
+            completion_data = {"type": "complete", "results": all_results_data}
+            yield f"data: {json.dumps(completion_data)}\n\n"
 
 
-    # Create the response object
-    response = Response(generate_updates(courses_to_process, year, quarter), mimetype='text/event-stream')
-    # Add header to try and disable Nginx buffering for SSE
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Cache-Control'] = 'no-cache' # Also useful for SSE
-    app.logger.info("Returning streaming response with X-Accel-Buffering=no and Cache-Control=no-cache.")
+    # Create the response object with explicit content type and headers
+    response = Response(
+        generate_updates(courses_to_process, year, quarter), 
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+            'Content-Type': 'text/event-stream'
+        }
+    )
+    
+    app.logger.info("Returning streaming response with appropriate SSE headers.")
     return response
 
 
@@ -333,5 +386,5 @@ if __name__ == '__main__':
     # PythonAnywhere will use its own logging config for uWSGI
     import logging
     logging.basicConfig(level=logging.INFO)
-    app.logger.info("Flask app starting in __main__")
-    app.run(debug=False) # debug=False is important for production-like testing
+    app.logger.info("Flask app starting in __main__ with threaded=True")
+    app.run(debug=False, threaded=True)
