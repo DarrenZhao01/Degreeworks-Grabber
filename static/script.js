@@ -121,6 +121,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return null; // Parsing failed
     }
 
+    /**
+     * Extracts time strings from meeting details.
+     * @param {Array<string>} meetings - Array of meeting strings.
+     * @returns {string} HTML string of extracted times, or 'TBA'.
+     */
+    function extractTimesFromMeetings(meetings) {
+        if (!meetings || !Array.isArray(meetings) || meetings.length === 0) {
+            return 'TBA';
+        }
+        // Regex to find time patterns like "10:00am-11:50am" or "2:00pm - 3:20pm"
+        const timeRegex = /\b\d{1,2}:\d{2}(?:[ap]m)?\s*-\s*\d{1,2}:\d{2}(?:[ap]m)?\b/gi;
+        const allTimes = meetings.map(meetingStr => {
+            if (typeof meetingStr !== 'string') return null;
+            const matches = meetingStr.match(timeRegex);
+            return matches ? matches.join(', ') : null; // Join if multiple times in one meeting string
+        }).filter(time => time !== null); // Remove entries where no time was found
+
+        return allTimes.length > 0 ? allTimes.join('<br>') : 'TBA';
+    }
 
     /**
      * Creates a single table row for a section, linking the code to AntAlmanac.
@@ -132,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const safeSection = section || {};
         const statusBadgeClass = getStatusBadgeClass(safeSection.status);
         const sectionCode = safeSection.code || 'N/A';
+        const sectionTimes = extractTimesFromMeetings(safeSection.meetings); // Extract times
 
         // Create AntAlmanac link for the section code
         // Add specific class 'course-code-link' and onclick handler
@@ -147,6 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         row.innerHTML = `
             <td data-label="Code">${codeLink}</td>
+            <td data-label="Times" class="column-times">${sectionTimes}</td>
             <td data-label="Instructors">${safeSection.instructors || 'TBA'}</td>
             <td data-label="Status"><span class="badge ${statusBadgeClass} status-badge">${safeSection.status || 'Unknown'}</span></td>
             <td data-label="Meetings" class="meeting-details">${safeSection.meetings && safeSection.meetings.length > 0 ? safeSection.meetings.join('<br>') : 'TBA'}</td>
@@ -252,7 +273,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Create table for sections of this type
                 const table = document.createElement('table'); table.className = 'table table-hover table-sm';
-                const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
+                const thead = document.createElement('thead'); 
+                thead.innerHTML = `<tr><th>Code</th><th class="column-times">Times</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
                 table.appendChild(thead);
                 const tbody = document.createElement('tbody');
                 sectionsOfType.forEach(section => {
@@ -568,6 +590,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     } else {
         console.error("Course form element not found.");
+    }
+
+    const showTimesToggle = document.getElementById('showTimesToggle');
+
+    function handleShowTimesToggle() {
+        if (!showTimesToggle || !resultsArea) {
+            console.warn("Show times toggle or results area not found for toggling.");
+            return;
+        }
+        const show = showTimesToggle.checked;
+        if (show) {
+            resultsArea.classList.remove('hide-times-column');
+        } else {
+            resultsArea.classList.add('hide-times-column');
+        }
+    }
+
+    if (showTimesToggle) {
+        showTimesToggle.addEventListener('change', handleShowTimesToggle);
+        // Initialize based on default checked state when the script fully loads and elements are ready.
+        handleShowTimesToggle();
+    } else {
+        console.error("Show Times Toggle element (#showTimesToggle) not found.");
     }
 
     // Expand All Button Listener

@@ -340,3 +340,19 @@ body {
         margin: 0.25rem; /* Add some spacing between buttons */
     }
 }
+
+/* Add styles for the Show Times toggle and column visibility */
+.results-area.hide-times-column th.column-times,
+.results-area.hide-times-column td.column-times {
+    display: none !important;
+}
+
+/* Ensure the label for the toggle switch is vertically aligned nicely with buttons */
+.collapse-controls .form-check-label {
+    vertical-align: middle;
+    font-size: 0.85rem; /* Match button font size if not already by .small */
+}
+
+.collapse-controls .form-switch .form-check-input {
+    vertical-align: middle; /* Align switch itself if needed */
+}
