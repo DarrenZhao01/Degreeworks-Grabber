@@ -24,6 +24,11 @@ code {
 .step {
     margin-bottom: 20px;
 }
+
+.step span{
+    font-size: 1.2em;
+}
+
 .step-number {
     font-weight: bold;
     color: #007bff;
