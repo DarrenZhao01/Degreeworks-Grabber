@@ -1,46 +1,56 @@
-// Wait for the DOM to be fully loaded before running scripts
 document.addEventListener('DOMContentLoaded', () => {
 
-    // Get references to DOM elements
     const courseForm = document.getElementById('courseForm');
-    const progressContainer = document.querySelector('.progress-container');
-    const progressBar = progressContainer?.querySelector('.progress-bar');
-    const progressText = progressContainer?.querySelector('.progress-text');
-    const progressLog = document.getElementById('progressLog'); // Get the new log element
-    const resultsArea = document.getElementById('resultsArea');
+    
+    const bodyElement = document.body;
+    const inputColumn = document.querySelector('.input-column');
+    const outputColumn = document.querySelector('.output-column');
+    const progressLogDisplay = outputColumn.querySelector('.progress-log-display');
+    const resultsDisplay = outputColumn.querySelector('.results-display');
+
     const alertArea = document.getElementById('alertArea');
     const yearInput = document.getElementById('year');
-    const quarterSelect = document.getElementById('quarter'); // Get quarter select element
-    const allCoursesPane = document.getElementById('all-courses');
-    const availableCoursesPane = document.getElementById('available-courses');
-    const unavailableCoursesPane = document.getElementById('unavailable-courses');
-    const filterTabs = document.getElementById('filterTabs');
-    const expandAllBtn = document.getElementById('expandAllBtn');
-    const collapseAllBtn = document.getElementById('collapseAllBtn');
+    const quarterSelect = document.getElementById('quarter');
+    
+    const allCoursesPane = resultsDisplay.querySelector('#all-courses');
+    const availableCoursesPane = resultsDisplay.querySelector('#available-courses');
+    const unavailableCoursesPane = resultsDisplay.querySelector('#unavailable-courses');
+    
+    const filterTabs = resultsDisplay.querySelector('#filterTabs');
+    const expandAllBtn = resultsDisplay.querySelector('#expandAllBtn');
+    const collapseAllBtn = resultsDisplay.querySelector('#collapseAllBtn');
 
-    let eventSource = null; // Variable to hold the EventSource connection
-    let currentAbortController = null; // Track current fetch abort controller
-    let currentReader = null; // Track the current stream reader
-    let currentYear = ''; // Store year for link generation
-    let currentQuarter = ''; // Store quarter for link generation
+    let eventSource = null;
+    let currentAbortController = null;
+    let currentReader = null;
+    let currentYear = '';
+    let currentQuarter = '';
 
-    // --- Input Validation and Initialization ---
     if (yearInput) {
         yearInput.value = new Date().getFullYear();
     } else {
         console.error("Year input element not found.");
     }
 
-    // --- Utility Functions ---
-
     function showAlert(message, type = 'danger') {
         if (!alertArea) { console.error("Alert area element not found."); return; }
-        alertArea.innerHTML = `
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
             <div class="alert alert-${type} alert-dismissible fade show" role="alert">
                 ${message}
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         `;
+        alertArea.appendChild(wrapper);
+        setTimeout(() => {
+            const alertInstance = bootstrap.Alert.getInstance(wrapper.firstChild);
+            if (alertInstance) {
+                alertInstance.close();
+            } else if (wrapper.firstChild) {
+                 wrapper.firstChild.classList.remove('show');
+                 setTimeout(() => wrapper.remove(), 150);
+            }
+        }, 5000);
     }
 
     function clearAlert() {
@@ -56,18 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'status-unknown';
     }
 
-    /**
-     * Cancels any ongoing fetch request and stream reading.
-     */
     function cancelOngoingSearch() {
-        // Cancel the fetch request if one is in progress
         if (currentAbortController) {
             console.log("Aborting previous fetch request");
             currentAbortController.abort();
             currentAbortController = null;
         }
-        
-        // Cancel the stream reader if active
         if (currentReader) {
             console.log("Cancelling previous stream reader");
             currentReader.cancel("New search started").catch(err => 
@@ -75,8 +79,6 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             currentReader = null;
         }
-        
-        // Legacy: close EventSource connection if any
         if (eventSource) {
             eventSource.close();
             console.log("Previous EventSource closed.");
@@ -84,11 +86,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /**
-     * Formats the selected quarter name for the AntAlmanac URL.
-     * @param {string} quarterValue - The value from the quarter select dropdown.
-     * @returns {string} The formatted quarter name for the URL (e.g., "Spring", "Summer%20Session%201").
-     */
     function formatQuarterForAntAlmanac(quarterValue) {
         switch (quarterValue) {
             case "Fall": return "Fall";
@@ -97,49 +94,41 @@ document.addEventListener('DOMContentLoaded', () => {
             case "Summer1": return "Summer%20Session%201";
             case "Summer10wk": return "Summer%2010%20Week";
             case "Summer2": return "Summer%20Session%202";
-            case "Summer": return "Summer"; // Assuming AntAlmanac might accept a general Summer? Test this.
-            default: return quarterValue; // Fallback
+            default: return encodeURIComponent(quarterValue);
         }
     }
 
-    /**
-     * Parses department and course number from a course string like "COMPSCI 161".
-     * @param {string} courseString - The combined course string.
-     * @returns {object | null} An object { deptValue, courseNumber } or null if parsing fails.
-     */
     function parseCourseString(courseString) {
         if (!courseString || typeof courseString !== 'string') return null;
-        // Match the department (letters, &, /) and the course number (alphanumeric, possibly with letters like 1A)
-        const match = courseString.trim().match(/^([A-Z&/]+)\s+(.*)$/i);
+        const match = courseString.trim().match(/^([A-Z&/\s]+?)\s+([A-Z0-9]+(?:[A-Z])?(?:-[A-Z0-9]+(?:[A-Z])?)?)$/i);
         if (match && match.length === 3) {
             return {
-                deptValue: match[1].toUpperCase(), // Ensure department is uppercase
-                courseNumber: match[2] // Keep course number as is (e.g., '161', '45J', '199W')
+                deptValue: match[1].trim().toUpperCase(), 
+                courseNumber: match[2].toUpperCase()
+            };
+        }
+        const simpleMatch = courseString.trim().match(/^([A-Z&/]+)\s+(.*)$/i);
+        if (simpleMatch && simpleMatch.length === 3) {
+            return {
+                deptValue: simpleMatch[1].toUpperCase(),
+                courseNumber: simpleMatch[2].toUpperCase()
             };
         }
         console.warn("Could not parse course string:", courseString);
-        return null; // Parsing failed
+        return null;
     }
 
-
-    /**
-     * Creates a single table row for a section, linking the code to AntAlmanac.
-     * @param {object} section - The section data object.
-     * @returns {HTMLTableRowElement} The created table row element.
-     */
     function createSectionRow(section) {
         const row = document.createElement('tr');
         const safeSection = section || {};
         const statusBadgeClass = getStatusBadgeClass(safeSection.status);
         const sectionCode = safeSection.code || 'N/A';
 
-        // Create AntAlmanac link for the section code
-        // Add specific class 'course-code-link' and onclick handler
-        const codeLink = (sectionCode !== 'N/A' && /^\d+$/.test(sectionCode)) // Only link if it looks like a valid code
+        const codeLink = (sectionCode !== 'N/A' && /^\d+$/.test(sectionCode))
             ? `<a href="https://antalmanac.com/?courseCode=${sectionCode}"
                  target="_blank"
                  rel="noopener noreferrer"
-                 class="course-code-link"  /* Added specific class */
+                 class="course-code-link"
                  onclick="event.stopPropagation()">
                  ${sectionCode}
                </a>`
@@ -155,14 +144,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return row;
     }
 
-    /**
-     * Creates a course card element, linking the title to AntAlmanac via an icon.
-     * @param {object} course - The course data object.
-     * @param {string} idPrefix - A unique prefix for element IDs within this card.
-     * @param {string} year - The selected year (e.g., "2025").
-     * @param {string} quarter - The selected quarter value (e.g., "Spring", "Summer1").
-     * @returns {HTMLDivElement | null} The created card element or null on error.
-     */
     function createCourseCard(course, idPrefix, year, quarter) {
         if (!course || typeof course !== 'object' || !idPrefix || !year || !quarter) {
              console.error("Invalid input to createCourseCard:", course, idPrefix, year, quarter);
@@ -170,42 +151,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const courseCard = document.createElement('div');
         const isAvailable = isCourseAvailable(course);
-        courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`;
-        const collapseId = `${idPrefix}-collapse`;
-        const headerId = `${idPrefix}-header`;
+        courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`; 
+        const collapseId = `${idPrefix}-collapse-${Date.now()}${Math.random().toString(36).substring(2,7)}`;
+        const headerId = `${idPrefix}-header-${Date.now()}${Math.random().toString(36).substring(2,7)}`;
 
-        // --- Create AntAlmanac Link Icon ---
-        let antAlmanacIconLink = ''; // Default to empty string
-        const courseTitleText = course.course || 'Unknown Course'; // Plain text title
+        let antAlmanacIconLink = '';
+        const courseTitleText = course.course || 'Unknown Course';
         const parsedCourse = parseCourseString(course.course);
 
         if (parsedCourse) {
             const formattedQuarter = formatQuarterForAntAlmanac(quarter);
             const term = `${year}%20${formattedQuarter}`;
-            const antAlmanacUrl = `https://antalmanac.com/?term=${term}&deptValue=${parsedCourse.deptValue}&courseNumber=${encodeURIComponent(parsedCourse.courseNumber)}`;
-            // Create the icon link separately
+            const encodedDeptValue = encodeURIComponent(parsedCourse.deptValue);
+            const antAlmanacUrl = `https://antalmanac.com/?term=${term}&deptValue=${encodedDeptValue}&courseNumber=${encodeURIComponent(parsedCourse.courseNumber)}`;
             antAlmanacIconLink = `
                 <a href="${antAlmanacUrl}"
                    target="_blank"
                    rel="noopener noreferrer"
-                   class="antalmanac-link-icon ms-2"  /* Added specific class and margin */
+                   class="antalmanac-link-icon ms-2"
                    onclick="event.stopPropagation()"
                    title="View on AntAlmanac">
                     <i class="fas fa-external-link-alt"></i>
                 </a>`;
         }
-        // --- End Link Icon Creation ---
 
         const cardHeader = document.createElement('div');
-        cardHeader.className = 'card-header collapsed'; // Start collapsed
+        cardHeader.className = 'card-header collapsed';
         cardHeader.setAttribute('data-bs-toggle', 'collapse');
         cardHeader.setAttribute('data-bs-target', `#${collapseId}`);
-        cardHeader.setAttribute('aria-expanded', 'false'); // Start collapsed
+        cardHeader.setAttribute('aria-expanded', 'false'); 
         cardHeader.setAttribute('aria-controls', collapseId);
         cardHeader.id = headerId;
 
-        // Use flexbox alignment in the header (defined in CSS)
-        // Place title text and icon link together
         cardHeader.innerHTML = `
             <span class="course-title-container">
                 ${courseTitleText}
@@ -215,10 +192,9 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         courseCard.appendChild(cardHeader);
 
-
         const collapseWrapper = document.createElement('div');
         collapseWrapper.id = collapseId;
-        collapseWrapper.className = 'collapse card-body-wrapper'; // Start collapsed
+        collapseWrapper.className = 'collapse card-body-wrapper'; 
         collapseWrapper.setAttribute('aria-labelledby', headerId);
 
         const cardBody = document.createElement('div');
@@ -233,7 +209,6 @@ document.addEventListener('DOMContentLoaded', () => {
             noSectionsMsg.className = 'no-sections-message'; noSectionsMsg.textContent = 'No sections found for this term.';
             cardBody.appendChild(noSectionsMsg);
         } else {
-            // Sort section types (Lec, Dis, Lab, etc.)
             const sectionTypes = Object.keys(course.sections).sort((a, b) => {
                 const order = { 'Lec': 1, 'Dis': 2, 'Lab': 3, 'Sem': 4, 'Tut': 5, 'Qiz': 6, 'Fld': 7, 'Res': 8, 'Stu': 9, 'Act': 10, 'Col': 11 };
                 const orderA = order[a] || 99; const orderB = order[b] || 99;
@@ -244,19 +219,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const sectionsOfType = course.sections[type];
                 if (!Array.isArray(sectionsOfType) || sectionsOfType.length === 0) return;
 
-                // Add section type header (e.g., "Lectures", "Discussions")
                 const typeHeader = document.createElement('h6');
                 typeHeader.className = 'section-type-header';
                 const typeNameMap = { 'Lec': 'Lectures', 'Dis': 'Discussions', 'Lab': 'Labs', 'Sem': 'Seminars', 'Tut': 'Tutorials', 'Fld': 'Fieldwork', 'Res': 'Research', 'Stu': 'Studio', 'Act': 'Activity', 'Col': 'Colloquium', 'Qiz': 'Quiz Section' };
                 typeHeader.textContent = typeNameMap[type] || type; cardBody.appendChild(typeHeader);
 
-                // Create table for sections of this type
                 const table = document.createElement('table'); table.className = 'table table-hover table-sm';
                 const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
                 table.appendChild(thead);
                 const tbody = document.createElement('tbody');
                 sectionsOfType.forEach(section => {
-                    // Pass the section data to createSectionRow
                     if (section && typeof section === 'object') tbody.appendChild(createSectionRow(section));
                 });
                 table.appendChild(tbody);
@@ -280,25 +252,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
     }
 
-    /**
-     * Displays the FINAL course results in the appropriate filter tabs.
-     * Clears the progress log.
-     * @param {Array<object> | null | undefined} finalResults - An array of course objects.
-     * @param {string} year - The selected year.
-     * @param {string} quarter - The selected quarter.
-     */
-    function displayFinalResults(finalResults, year, quarter) {
-        // Clear the progress log now that results are final
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressContainer) progressContainer.classList.add('d-none'); // Ensure progress bar is hidden
+    function displayFinalResultsAndAnimate(finalResults, year, quarter) {
+        if (progressLogDisplay) progressLogDisplay.classList.add('d-none');
+        if (resultsDisplay) resultsDisplay.classList.remove('d-none');
 
-        // Ensure all pane elements exist
-        if (!allCoursesPane || !availableCoursesPane || !unavailableCoursesPane || !resultsArea) {
+        if (!allCoursesPane || !availableCoursesPane || !unavailableCoursesPane) {
              console.error("One or more result pane elements not found for final display.");
              return;
         }
 
-        // Clear previous results from all panes
         allCoursesPane.innerHTML = '';
         availableCoursesPane.innerHTML = '';
         unavailableCoursesPane.innerHTML = '';
@@ -318,44 +280,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 const availIdPrefix = `avail-${index}`;
                 const unavailIdPrefix = `unavail-${index}`;
 
-                // Pass year and quarter to createCourseCard
                 const allCard = createCourseCard(course, allIdPrefix, year, quarter);
                 if (allCard) {
                      allCoursesPane.appendChild(allCard);
-                     const isAvailable = isCourseAvailable(course);
-                     if (isAvailable) {
-                         // Pass year and quarter here too
-                         const availableCard = createCourseCard(course, availIdPrefix, year, quarter);
-                         if(availableCard) { availableCoursesPane.appendChild(availableCard); availableCount++; }
-                     } else {
-                         // Pass year and quarter here too
-                         const unavailableCard = createCourseCard(course, unavailIdPrefix, year, quarter);
-                         if(unavailableCard) { unavailableCoursesPane.appendChild(unavailableCard); unavailableCount++; }
-                     }
-                } else { console.warn("Skipping invalid course data in final display:", course); }
+                }
+
+                const isAvailable = isCourseAvailable(course);
+                if (isAvailable) {
+                    const availableCard = createCourseCard(course, availIdPrefix, year, quarter);
+                    if (availableCard) {
+                        availableCoursesPane.appendChild(availableCard);
+                        availableCount++;
+                    }
+                } else {
+                    const unavailableCard = createCourseCard(course, unavailIdPrefix, year, quarter);
+                    if (unavailableCard) {
+                        unavailableCoursesPane.appendChild(unavailableCard);
+                        unavailableCount++;
+                    }
+                }
             });
 
             if (availableCount === 0) availableCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with open sections found.</p>';
             if (unavailableCount === 0) unavailableCoursesPane.innerHTML = '<p class="empty-tab-message">No unavailable courses found.</p>';
-            if (allCoursesPane.childElementCount === 0) allCoursesPane.innerHTML = defaultEmptyMessage;
+            if (allCoursesPane.childElementCount === 0 && finalResults.length > 0) {
+                 allCoursesPane.innerHTML = '<p class="empty-tab-message">Could not display any courses in the "All" tab.</p>';
+            } else if (allCoursesPane.childElementCount === 0 && finalResults.length === 0 ) { 
+                allCoursesPane.innerHTML = defaultEmptyMessage;
+            }
+
+            setTimeout(() => {
+                const panesToAnimate = [allCoursesPane, availableCoursesPane, unavailableCoursesPane];
+                panesToAnimate.forEach(pane => {
+                    if (pane) { 
+                        const cardsInPane = pane.querySelectorAll('.course-card');
+                        cardsInPane.forEach((card, indexInPane) => {
+                            card.style.transitionDelay = `${indexInPane * 0.075}s`;
+                            card.classList.add('visible');
+                        });
+                    }
+                });
+            }, 100);
         }
 
-        // Show the results area
-        resultsArea.classList.remove('d-none');
-
-        // Set the 'Available Only' tab as active
-        const availableTabElement = document.getElementById('available-tab');
-        if (availableTabElement && typeof bootstrap !== 'undefined') {
-             bootstrap.Tab.getOrCreateInstance(availableTabElement).show();
+        const availableTabElement = resultsDisplay.querySelector('#available-tab');
+        if (availableTabElement && typeof bootstrap !== 'undefined' && bootstrap.Tab) {
+             const tabInstance = bootstrap.Tab.getOrCreateInstance(availableTabElement);
+             if (tabInstance) tabInstance.show();
         }
     }
 
-    /**
-     * Handles expanding or collapsing all course cards within the active tab.
-     * @param {boolean} expand - True to expand, false to collapse.
-     */
     function toggleAllCourses(expand) {
-        const activePane = document.querySelector('.tab-pane.fade.show.active');
+        const activePane = resultsDisplay.querySelector('.tab-pane.fade.show.active');
         if (!activePane) { console.warn("Could not find active tab pane for toggleAllCourses."); return; }
         const collapseElements = activePane.querySelectorAll('.collapse.card-body-wrapper');
         collapseElements.forEach(el => {
@@ -366,221 +342,160 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Event Listeners ---
-
-    // Form Submission Listener (Uses Fetch API with ReadableStream)
     if (courseForm) {
         courseForm.addEventListener('submit', (e) => {
             e.preventDefault();
             clearAlert();
-            if(resultsArea) resultsArea.classList.add('d-none'); // Hide previous results
-            if(progressLog) progressLog.innerHTML = ''; // Clear previous log
-
-            // Cancel any ongoing search operations
             cancelOngoingSearch();
 
-            // Show progress indicator
-            if (progressContainer && progressBar && progressText) {
-                progressBar.style.width = '0%'; // Reset progress bar
-                progressBar.textContent = ''; // Clear text inside bar
-                progressText.textContent = 'Initiating search...'; // Initial message
-                progressContainer.classList.remove('d-none');
-            } else {
-                 console.error("Progress bar elements not found.");
-                 showAlert("Could not initialize progress display.");
-                 return; // Don't proceed if progress elements are missing
+            bodyElement.classList.remove('initial-view');
+            bodyElement.classList.add('search-view');
+
+            if (progressLogDisplay) {
+                progressLogDisplay.innerHTML = '';
+                progressLogDisplay.classList.remove('d-none');
+                const initialLogEntry = document.createElement('div');
+                initialLogEntry.textContent = 'Initiating search...';
+                progressLogDisplay.appendChild(initialLogEntry);
+                progressLogDisplay.scrollTop = progressLogDisplay.scrollHeight;
             }
+            if (resultsDisplay) resultsDisplay.classList.add('d-none');
 
-
-            // Get form data
-            const inputTextElement = document.getElementById('inputText');
-            // Get current year and quarter values and store them
             currentYear = yearInput ? yearInput.value : '';
             currentQuarter = quarterSelect ? quarterSelect.value : '';
-
+            const inputTextElement = document.getElementById('inputText');
             const formData = {
                 input_text: inputTextElement ? inputTextElement.value.trim() : '',
                 year: currentYear,
                 quarter: currentQuarter
             };
 
-            // Basic client-side validation
             if (!formData.input_text || !formData.year || !formData.quarter) {
                 showAlert('Please fill in all fields.');
-                if(progressContainer) progressContainer.classList.add('d-none');
+                bodyElement.classList.remove('search-view'); 
+                bodyElement.classList.add('initial-view');
+                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
                 return;
             }
             if (!/^\d{4}$/.test(formData.year)) {
                 showAlert('Please enter a valid 4-digit year.');
-                if(progressContainer) progressContainer.classList.add('d-none');
+                bodyElement.classList.remove('search-view'); 
+                bodyElement.classList.add('initial-view');
+                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
                 return;
             }
 
-            // --- Initialize Fetch for Streaming with AbortController ---
-            console.log("Initiating fetch to /stream_process");
-            
-            // Create new abort controller for this request
             currentAbortController = new AbortController();
-
             fetch('/stream_process', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'text/event-stream' // Tell server we expect a stream
-                },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
                 body: JSON.stringify(formData),
-                signal: currentAbortController.signal  // Enable request cancellation
+                signal: currentAbortController.signal
             })
             .then(response => {
-                if (!response.ok) {
-                    // Handle HTTP errors before trying to read stream
-                    throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-                }
-                if (!response.body) {
-                    throw new Error("Response doesn't contain a readable stream.");
-                }
-                console.log("Received stream response...");
-
-                // Process the readable stream
+                if (!response.ok) throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+                if (!response.body) throw new Error("Response doesn't contain a readable stream.");
+                
                 const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-                currentReader = reader; // Store the reader for potential cancellation
-                let accumulatedData = ''; // Buffer for incomplete messages
+                currentReader = reader;
+                let accumulatedData = '';
 
                 function processStream({ done, value }) {
-                    // Check if this reader is still the current one
                     if (currentReader !== reader) {
                         console.log("Reader is no longer current, stopping processing");
-                        reader.cancel("Superseded by newer search").catch(err => 
-                            console.warn("Error cancelling superseded reader:", err)
-                        );
+                        reader.cancel("Superseded by newer search").catch(err => console.warn("Error cancelling superseded reader:", err));
                         return;
                     }
                     
-                    if (value) { // Always process value if present, before checking 'done'
-                        accumulatedData += value;
-                    }
+                    if (value) accumulatedData += value;
 
-                    // Process all complete messages in accumulatedData
-                    // This loop will run if there's data, and will also run one last time if 'done' is true and there was residual data.
                     let boundary = accumulatedData.indexOf('\n\n');
                     while (boundary >= 0) {
                         const message = accumulatedData.substring(0, boundary).trim();
-                        accumulatedData = accumulatedData.substring(boundary + 2); // Skip \n\n
-                        if (message.startsWith('data:')) {
-                            const jsonData = message.substring(5).trim(); // Remove 'data:' prefix
+                        accumulatedData = accumulatedData.substring(boundary + 2);
+                        if (message.startsWith('event: keepalive')) {
+                            console.log("Received keepalive event, connection is healthy");
+                            const dataIndex = accumulatedData.indexOf('data:');
+                            if (dataIndex === 0) {
+                                const dataEnd = accumulatedData.indexOf('\n\n');
+                                if (dataEnd > 0) {
+                                    const pingData = accumulatedData.substring(5, dataEnd).trim();
+                                    console.log("Keepalive ping data:", pingData);
+                                    accumulatedData = accumulatedData.substring(dataEnd + 2);
+                                }
+                            }
+                        } else if (message.startsWith('data:')) {
+                            const jsonData = message.substring(5).trim();
                             try {
                                 const eventData = JSON.parse(jsonData);
-                                // --- Handle different event types ---
-                                if (eventData.type === 'progress') {
-                                    // Update progress bar
-                                    if(progressBar) progressBar.style.width = `${eventData.value}%`;
-                                    if(progressBar) progressBar.textContent = `${eventData.value}%`; // Optional text on bar
-                                    if(progressText) progressText.textContent = eventData.message || 'Processing...';
-                                    // Append to log immediately
-                                    if(progressLog && eventData.message) {
+                                if (eventData.type === 'progress' || eventData.type === 'log') {
+                                    if(progressLogDisplay && eventData.message) {
                                          const logEntry = document.createElement('div');
                                          logEntry.textContent = eventData.message;
-                                         progressLog.appendChild(logEntry);
-                                         progressLog.scrollTop = progressLog.scrollHeight; // Auto-scroll
+                                         if (progressLogDisplay.children.length === 1 && progressLogDisplay.firstChild.textContent === 'Initiating search...') {
+                                            progressLogDisplay.innerHTML = '';
+                                         }
+                                         progressLogDisplay.appendChild(logEntry);
+                                         progressLogDisplay.scrollTop = progressLogDisplay.scrollHeight;
                                     }
-
-                                } else if (eventData.type === 'log') {
-                                    // Append log message
-                                     if(progressLog && eventData.message) {
-                                         const logEntry = document.createElement('div');
-                                         logEntry.textContent = eventData.message;
-                                         progressLog.appendChild(logEntry);
-                                         progressLog.scrollTop = progressLog.scrollHeight; // Auto-scroll
-                                     }
                                 } else if (eventData.type === 'complete') {
                                     console.log("Received 'complete' message.");
-                                    // Clean up references
-                                    if (currentReader === reader) {
-                                        currentReader = null;
-                                    }
-                                    // Pass the stored year and quarter to the display function
-                                    displayFinalResults(eventData.results, currentYear, currentQuarter);
-                                    // Ensure progress is hidden once 'complete' is processed
-                                    if(progressContainer) progressContainer.classList.add('d-none');
-                                    // The stream will naturally end when 'done' is true. 
-                                    // We don't return here, let the 'done' block handle final reader state.
+                                    if (currentReader === reader) currentReader = null;
+                                    displayFinalResultsAndAnimate(eventData.results, currentYear, currentQuarter);
                                 } else if (eventData.type === 'error') {
                                      console.error("Received error from server stream:", eventData.message);
                                      showAlert(`Server error: ${eventData.message}`, 'danger');
-                                     if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress on error
-                                     
-                                     // Clean up references
-                                     if (currentReader === reader) {
-                                         currentReader = null;
-                                     }
-                                     
-                                     reader.cancel("Server error received").catch(e => console.warn("Error cancelling reader on server error:", e)); // Attempt to cancel the stream reader
-                                     return; // Stop processing
+                                     if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
+                                     if (currentReader === reader) currentReader = null;
+                                     reader.cancel("Server error received").catch(e => console.warn("Error cancelling reader on server error:", e));
+                                     return; 
                                 }
                             } catch (e) {
                                 console.error("Error parsing SSE data:", e, "Raw data:", jsonData);
-                                // Don't stop the stream, just log the error for this message
                             }
-                        } else if (message.startsWith('event:') || message.startsWith('id:') || message.startsWith('retry:')) {
-                             // Ignore other SSE fields for now
-                        } else if (message) { // Non-empty message that isn't 'data:'
-                             console.warn("Received non-standard SSE line:", message);
+                        } else if (message.match(/^id:|^retry:/)) {
+                            console.log("Received SSE field:", message);
+                        } else if (message.trim() !== '') {
+                            console.warn("Received unexpected SSE message format:", message);
                         }
-                        boundary = accumulatedData.indexOf('\n\n'); // Look for next message
+                        boundary = accumulatedData.indexOf('\n\n');
                     }
 
                     if (done) {
-                        console.log("Stream finished (done is true).");
-                        if (currentReader === reader) {
-                            currentReader = null;
-                        }
-                        // After attempting to process any final accumulated data,
-                        // check if results were actually displayed (i.e., 'complete' was handled).
-                        if (resultsArea && resultsArea.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
+                        console.log("Stream finished.");
+                        if (currentReader === reader) currentReader = null;
+                        if (resultsDisplay && resultsDisplay.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
                              showAlert("The connection closed before processing completed. Please try again.", "warning");
+                             if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
                         }
-                         // Ensure progress is hidden even if stream ends unexpectedly or normally.
-                        if(progressContainer) progressContainer.classList.add('d-none');
                         return;
                     }
-
-                    // Continue reading the stream if not done
                     return reader.read().then(processStream);
                 }
-
-                // Start reading the stream
                 return reader.read().then(processStream);
-
             })
             .catch(error => {
-                // Check if this was an abort error (which is expected during cancellation)
                 if (error.name === 'AbortError') {
-                    console.log('Fetch request was aborted due to a new search starting');
-                    return; // Don't show an error for intentional cancellation
+                    console.log('Fetch request was aborted.');
+                    return; 
                 }
-                
                 console.error('Error during fetch/stream processing:', error);
                 showAlert(`An error occurred: ${error.message}`, 'danger');
-                
-                // Clean up references
                 currentReader = null;
                 currentAbortController = null;
-                
-                if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress bar on error
+                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
             });
         });
     } else {
         console.error("Course form element not found.");
     }
 
-    // Expand All Button Listener
     if (expandAllBtn) {
         expandAllBtn.addEventListener('click', () => toggleAllCourses(true));
     } else { console.error("Expand All button not found."); }
 
-    // Collapse All Button Listener
     if (collapseAllBtn) {
         collapseAllBtn.addEventListener('click', () => toggleAllCourses(false));
     } else { console.error("Collapse All button not found."); }
 
-}); // End DOMContentLoaded listener
+});

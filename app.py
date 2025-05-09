@@ -10,6 +10,7 @@ import concurrent.futures
 from dotenv import load_dotenv
 import subprocess
 import urllib.parse
+import unittest
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path='.env')
@@ -101,6 +102,24 @@ def parse_courses(input_text):
         tokens = [token for token in part.split() if token]
         if not tokens:
             continue 
+
+        # Special handling for department codes with ampersands
+        processed_tokens = []
+        for token in tokens:
+            # Handle cases like "I&CSCI" -> "I&C" "SCI"
+            if '&' in token and token.upper() == token and len(token) > 3:
+                # Find the position of & and split after it if there are at least 2 chars after &
+                amp_pos = token.find('&')
+                if amp_pos > 0 and amp_pos < len(token) - 2:
+                    # Insert a space after the character following the &
+                    split_tokens = [token[:amp_pos+2], token[amp_pos+2:]]
+                    processed_tokens.extend(split_tokens)
+                else:
+                    processed_tokens.append(token)
+            else:
+                processed_tokens.append(token)
+        
+        tokens = processed_tokens
 
         dept_words = [] 
         i = 0
@@ -221,6 +240,21 @@ def format_meeting_string(m):
      meeting_string = " ".join(parts).strip()
      return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
 
+
+# --- Unit Tests for Parser ---
+class ParserTests(unittest.TestCase):
+    def test_parse_courses_with_ampersand(self):
+        """Test handling of department codes with ampersands"""
+        # Test the issue mentioned in the ticket
+        result = parse_courses("1 Class in I&CSCI 45C")
+        expected = [("I&C SCI", "45C")]
+        self.assertEqual(result, expected)
+        
+        # Test multiple courses with ampersand
+        result = parse_courses("2 Classes in I&CSCI 45C, I&CSCI 46")
+        expected = [("I&C SCI", "45C"), ("I&C SCI", "46")]
+        self.assertEqual(result, expected)
+
 # --- Routes ---
 
 @app.route('/')
@@ -313,6 +347,7 @@ def stream_process():
                         app.logger.info("Sending SSE keep-alive event (event: keepalive).")
                         # Use explicit newlines instead of escaping
                         ping_data = json.dumps({'message': 'ping', 'timestamp': time.time()})
+                        # Format according to SSE spec - event line must come before data line
                         yield f"event: keepalive\ndata: {ping_data}\n\n"
                         continue # Continue to the next iteration of the while loop to wait again
 
@@ -412,4 +447,10 @@ if __name__ == '__main__':
     import logging
     logging.basicConfig(level=logging.INFO)
     app.logger.info("Flask app starting in __main__ with threaded=True")
-    app.run(debug=False, threaded=True)
+    
+    # Run unit tests if in test mode
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == '--test':
+        unittest.main(argv=['first-arg-is-ignored'])
+    else:
+        app.run(debug=False, threaded=True)
