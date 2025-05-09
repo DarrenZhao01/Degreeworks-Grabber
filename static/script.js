@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const collapseAllBtn = document.getElementById('collapseAllBtn');
 
     let eventSource = null; // Variable to hold the EventSource connection
+    let currentAbortController = null; // Track current fetch abort controller
+    let currentReader = null; // Track the current stream reader
     let currentYear = ''; // Store year for link generation
     let currentQuarter = ''; // Store quarter for link generation
 
@@ -52,6 +54,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lowerStatus === 'full') return 'status-full';
         if (lowerStatus === 'newonly') return 'status-newonly';
         return 'status-unknown';
+    }
+
+    /**
+     * Cancels any ongoing fetch request and stream reading.
+     */
+    function cancelOngoingSearch() {
+        // Cancel the fetch request if one is in progress
+        if (currentAbortController) {
+            console.log("Aborting previous fetch request");
+            currentAbortController.abort();
+            currentAbortController = null;
+        }
+        
+        // Cancel the stream reader if active
+        if (currentReader) {
+            console.log("Cancelling previous stream reader");
+            currentReader.cancel("New search started").catch(err => 
+                console.warn("Error cancelling reader:", err)
+            );
+            currentReader = null;
+        }
+        
+        // Legacy: close EventSource connection if any
+        if (eventSource) {
+            eventSource.close();
+            console.log("Previous EventSource closed.");
+            eventSource = null;
+        }
     }
 
     /**
@@ -346,12 +376,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if(resultsArea) resultsArea.classList.add('d-none'); // Hide previous results
             if(progressLog) progressLog.innerHTML = ''; // Clear previous log
 
-            // Close existing EventSource connection if any (though we use Fetch now)
-            if (eventSource) {
-                eventSource.close();
-                console.log("Previous EventSource closed.");
-                eventSource = null;
-            }
+            // Cancel any ongoing search operations
+            cancelOngoingSearch();
 
             // Show progress indicator
             if (progressContainer && progressBar && progressText) {
@@ -390,8 +416,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // --- Initialize Fetch for Streaming ---
+            // --- Initialize Fetch for Streaming with AbortController ---
             console.log("Initiating fetch to /stream_process");
+            
+            // Create new abort controller for this request
+            currentAbortController = new AbortController();
 
             fetch('/stream_process', {
                 method: 'POST',
@@ -399,7 +428,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json',
                     'Accept': 'text/event-stream' // Tell server we expect a stream
                 },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(formData),
+                signal: currentAbortController.signal  // Enable request cancellation
             })
             .then(response => {
                 if (!response.ok) {
@@ -413,11 +443,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Process the readable stream
                 const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+                currentReader = reader; // Store the reader for potential cancellation
                 let accumulatedData = ''; // Buffer for incomplete messages
 
                 function processStream({ done, value }) {
+                    // Check if this reader is still the current one
+                    if (currentReader !== reader) {
+                        console.log("Reader is no longer current, stopping processing");
+                        reader.cancel("Superseded by newer search").catch(err => 
+                            console.warn("Error cancelling superseded reader:", err)
+                        );
+                        return;
+                    }
+                    
                     if (done) {
                         console.log("Stream finished.");
+                        // Clean up references
+                        if (currentReader === reader) {
+                            currentReader = null;
+                        }
                         // Handle case where stream finishes without a 'complete' message?
                         // This might happen if the connection drops or server terminates unexpectedly.
                         // If no 'complete' message was received and results area is still hidden, show an alert.
@@ -464,6 +508,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                      }
                                 } else if (eventData.type === 'complete') {
                                     console.log("Received 'complete' message.");
+                                    // Clean up references
+                                    if (currentReader === reader) {
+                                        currentReader = null;
+                                    }
                                     // Pass the stored year and quarter to the display function
                                     displayFinalResults(eventData.results, currentYear, currentQuarter);
                                     // Stream should close automatically after this
@@ -472,6 +520,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                      console.error("Received error from server stream:", eventData.message);
                                      showAlert(`Server error: ${eventData.message}`, 'danger');
                                      if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress on error
+                                     
+                                     // Clean up references
+                                     if (currentReader === reader) {
+                                         currentReader = null;
+                                     }
+                                     
                                      reader.cancel().catch(e => console.warn("Error cancelling reader:", e)); // Attempt to cancel the stream reader
                                      return; // Stop processing
                                 }
@@ -496,8 +550,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             })
             .catch(error => {
+                // Check if this was an abort error (which is expected during cancellation)
+                if (error.name === 'AbortError') {
+                    console.log('Fetch request was aborted due to a new search starting');
+                    return; // Don't show an error for intentional cancellation
+                }
+                
                 console.error('Error during fetch/stream processing:', error);
                 showAlert(`An error occurred: ${error.message}`, 'danger');
+                
+                // Clean up references
+                currentReader = null;
+                currentAbortController = null;
+                
                 if(progressContainer) progressContainer.classList.add('d-none'); // Hide progress bar on error
             });
         });
