@@ -28,12 +28,21 @@ Setting up is a breeze:
     ```bash
     pip install -r requirements.txt
     ```
-    *(This installs Flask and Requests)*
-3.  **Launch the App:**
+    *(This installs Flask, Requests, and python-dotenv)*
+
+3.  **Set up API Key:**
+    - Create a `.env` file in the root directory based on the provided `.env.example`
+    - Add your Anteater API key to the `.env` file
+    ```
+    ANTEATER_API_SECRET_KEY=your_api_key_here
+    ```
+    - If you don't have an API key, please obtain one from the [Anteater API](https://anteaterapi.com) service
+
+4.  **Launch the App:**
     ```bash
     python app.py
     ```
-4.  **Open in Browser:** Navigate to `http://127.0.0.1:5000` (or `http://localhost:5000`) in your web browser.
+5.  **Open in Browser:** Navigate to `http://127.0.0.1:5000` (or `http://localhost:5000`) in your web browser.
 
 ## How to Use
 
@@ -51,7 +60,9 @@ Setting up is a breeze:
 * Python 3.7 or higher
 * Flask
 * Requests
+* python-dotenv
 * A modern web browser
+* Anteater API key (for accessing course data)
 
 ---
 

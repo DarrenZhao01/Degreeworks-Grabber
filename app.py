@@ -4,8 +4,15 @@ import requests
 import re
 import json
 import time
+import os
 from collections import defaultdict
 import concurrent.futures
+from dotenv import load_dotenv
+import subprocess
+import urllib.parse
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path='.env')
 
 # --- Custom Exception Classes ---
 
@@ -53,6 +60,17 @@ app = Flask(__name__)
 
 # Base URL for the Anteater API
 BASE_URL = "https://anteaterapi.com/v2/rest/enrollmentHistory"
+
+# Get API key from environment variables
+API_KEY = os.environ.get('ANTEATER_API_SECRET_KEY')
+
+# Proper handling for missing API key
+if not API_KEY:
+    app.logger.error("ANTEATER_API_SECRET_KEY is not set in environment. Check your .env file configuration.")
+    # In a production environment, it might be appropriate to raise an exception here
+    # to prevent the app from starting without proper credentials
+    # Uncomment the following line in production
+    # raise EnvironmentError("Required API key ANTEATER_API_SECRET_KEY is not configured")
 
 # --- Helper Functions (Using Locally Defined Exceptions) ---
 
@@ -144,9 +162,14 @@ def get_sections(dept, num, year, quarter):
         APINoDataError: If the API responds successfully but with an empty 'data' field or 'ok: false'.
     """
     params = {"year": year, "quarter": quarter, "department": dept, "courseNumber": num}
-    app.logger.info(f"Fetching sections for {dept} {num} - Year: {year}, Quarter: {quarter}") # Added log
+    headers = {
+        "Authorization": f"Bearer {API_KEY}"  # Capitalized Authorization header is important
+    }
+    app.logger.info(f"Fetching sections for {dept} {num} - Year: {year}, Quarter: {quarter}")
     try:
-        r = requests.get(BASE_URL, params=params, timeout=25)
+        r = requests.get(BASE_URL, params=params, headers=headers, timeout=25)
+        
+        # Handle HTTP errors
         r.raise_for_status() 
 
         try:
@@ -155,18 +178,20 @@ def get_sections(dept, num, year, quarter):
              app.logger.error(f"API returned non-JSON response for {dept} {num}. Content: {r.text[:200]}...", exc_info=True)
              raise APIError(f"API returned non-JSON response for {dept} {num}. Content: {r.text[:100]}...", status_code=r.status_code) from e
 
+        # Check if API returned a valid response
         if not data.get("ok"):
             error_msg = data.get('message', f'API indicated failure for {dept} {num} but provided no specific message.')
             app.logger.warning(f"APINoDataError for {dept} {num}: {error_msg} (API ok:false)")
             raise APINoDataError(error_msg)
 
+        # Get sections from data (even if empty)
         sections = data.get("data")
-        if sections is None:
+        if sections is None:  # Only raise error if data field is null/None, not if it's an empty list
              app.logger.warning(f"APINoDataError for {dept} {num}: API returned null data.")
              raise APINoDataError(f"API returned null data for {dept} {num}.")
         
-        app.logger.info(f"Successfully fetched {len(sections)} sections for {dept} {num}") # Added log
-        return sections
+        app.logger.info(f"Successfully fetched {len(sections)} sections for {dept} {num}")
+        return sections  # This will return [] for empty data, which is valid
 
     except requests.exceptions.Timeout as e:
         app.logger.error(f"APITimeoutError for {dept} {num}", exc_info=True)
