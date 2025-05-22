@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "DegreeWorks Course Finder for UC Irvine",
   "scripts": {
-    "build": "mkdir -p public && cp -r templates/* public/ && cp -r static public/"
+    "build": "mkdir -p public && cp -r templates/* public/ && cp -r static public/ && echo 'Public directory contents:' && ls -R public"
   },
   "dependencies": {
     "axios": "^1.6.2"
