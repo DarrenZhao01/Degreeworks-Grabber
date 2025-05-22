@@ -343,148 +343,97 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (courseForm) {
-        courseForm.addEventListener('submit', (e) => {
+        courseForm.addEventListener('submit', async function(e) {
             e.preventDefault();
+            
             clearAlert();
+            bodyElement.classList.remove('initial-view');
+            
+            const inputText = document.getElementById('inputText').value.trim();
+            const year = yearInput.value.trim();
+            const quarter = quarterSelect.value;
+            
+            if (!inputText || !year || !quarter) {
+                showAlert('Please fill out all fields.', 'warning');
+                return;
+            }
+            
+            // Store for AntAlmanac links
+            currentYear = year;
+            currentQuarter = quarter;
+            
+            progressLogDisplay.classList.remove('d-none');
+            progressLogDisplay.innerHTML = `
+                <div class="progress-container">
+                    <div class="progress mb-3">
+                        <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div class="log-container">
+                        <div class="spinner-border text-primary spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="current-progress-text">Starting search...</span>
+                    </div>
+                </div>`;
+            
+            resultsDisplay.classList.add('d-none');
+            resultsDisplay.querySelectorAll('.tab-pane').forEach(pane => {
+                pane.innerHTML = '';
+            });
+            
             cancelOngoingSearch();
 
-            bodyElement.classList.remove('initial-view');
-            bodyElement.classList.add('search-view');
+            try {
+                // Update to use Netlify function
+                const response = await fetch('/.netlify/functions/stream_process', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        input_text: inputText,
+                        year: year,
+                        quarter: quarter
+                    })
+                });
 
-            if (progressLogDisplay) {
-                progressLogDisplay.innerHTML = '';
-                progressLogDisplay.classList.remove('d-none');
-                const initialLogEntry = document.createElement('div');
-                initialLogEntry.textContent = 'Initiating search...';
-                progressLogDisplay.appendChild(initialLogEntry);
-                progressLogDisplay.scrollTop = progressLogDisplay.scrollHeight;
-            }
-            if (resultsDisplay) resultsDisplay.classList.add('d-none');
+                if (!response.ok) {
+                    let errorText = 'Server error occurred';
+                    try {
+                        const errorData = await response.json();
+                        errorText = errorData.message || errorText;
+                    } catch (e) {
+                        console.error('Error parsing error response:', e);
+                    }
+                    throw new Error(errorText);
+                }
 
-            currentYear = yearInput ? yearInput.value : '';
-            currentQuarter = quarterSelect ? quarterSelect.value : '';
-            const inputTextElement = document.getElementById('inputText');
-            const formData = {
-                input_text: inputTextElement ? inputTextElement.value.trim() : '',
-                year: currentYear,
-                quarter: currentQuarter
-            };
-
-            if (!formData.input_text || !formData.year || !formData.quarter) {
-                showAlert('Please fill in all fields.');
-                bodyElement.classList.remove('search-view'); 
-                bodyElement.classList.add('initial-view');
-                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
-                return;
-            }
-            if (!/^\d{4}$/.test(formData.year)) {
-                showAlert('Please enter a valid 4-digit year.');
-                bodyElement.classList.remove('search-view'); 
-                bodyElement.classList.add('initial-view');
-                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
-                return;
-            }
-
-            currentAbortController = new AbortController();
-            fetch('/stream_process', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-                body: JSON.stringify(formData),
-                signal: currentAbortController.signal
-            })
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-                if (!response.body) throw new Error("Response doesn't contain a readable stream.");
+                // Process the JSON response (instead of event stream)
+                const data = await response.json();
                 
-                const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-                currentReader = reader;
-                let accumulatedData = '';
-
-                function processStream({ done, value }) {
-                    if (currentReader !== reader) {
-                        console.log("Reader is no longer current, stopping processing");
-                        reader.cancel("Superseded by newer search").catch(err => console.warn("Error cancelling superseded reader:", err));
-                        return;
-                    }
+                if (data.type === 'error') {
+                    throw new Error(data.message);
+                } else if (data.type === 'complete') {
+                    // Update progress to 100%
+                    const progressBar = progressLogDisplay.querySelector('.progress-bar');
+                    const progressText = progressLogDisplay.querySelector('.current-progress-text');
+                    if (progressBar) progressBar.style.width = '100%';
+                    if (progressText) progressText.textContent = 'Search complete!';
                     
-                    if (value) accumulatedData += value;
-
-                    let boundary = accumulatedData.indexOf('\n\n');
-                    while (boundary >= 0) {
-                        const message = accumulatedData.substring(0, boundary).trim();
-                        accumulatedData = accumulatedData.substring(boundary + 2);
-                        if (message.startsWith('event: keepalive')) {
-                            console.log("Received keepalive event, connection is healthy");
-                            const dataIndex = accumulatedData.indexOf('data:');
-                            if (dataIndex === 0) {
-                                const dataEnd = accumulatedData.indexOf('\n\n');
-                                if (dataEnd > 0) {
-                                    const pingData = accumulatedData.substring(5, dataEnd).trim();
-                                    console.log("Keepalive ping data:", pingData);
-                                    accumulatedData = accumulatedData.substring(dataEnd + 2);
-                                }
-                            }
-                        } else if (message.startsWith('data:')) {
-                            const jsonData = message.substring(5).trim();
-                            try {
-                                const eventData = JSON.parse(jsonData);
-                                if (eventData.type === 'progress' || eventData.type === 'log') {
-                                    if(progressLogDisplay && eventData.message) {
-                                         const logEntry = document.createElement('div');
-                                         logEntry.textContent = eventData.message;
-                                         if (progressLogDisplay.children.length === 1 && progressLogDisplay.firstChild.textContent === 'Initiating search...') {
-                                            progressLogDisplay.innerHTML = '';
-                                         }
-                                         progressLogDisplay.appendChild(logEntry);
-                                         progressLogDisplay.scrollTop = progressLogDisplay.scrollHeight;
-                                    }
-                                } else if (eventData.type === 'complete') {
-                                    console.log("Received 'complete' message.");
-                                    if (currentReader === reader) currentReader = null;
-                                    displayFinalResultsAndAnimate(eventData.results, currentYear, currentQuarter);
-                                } else if (eventData.type === 'error') {
-                                     console.error("Received error from server stream:", eventData.message);
-                                     showAlert(`Server error: ${eventData.message}`, 'danger');
-                                     if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
-                                     if (currentReader === reader) currentReader = null;
-                                     reader.cancel("Server error received").catch(e => console.warn("Error cancelling reader on server error:", e));
-                                     return; 
-                                }
-                            } catch (e) {
-                                console.error("Error parsing SSE data:", e, "Raw data:", jsonData);
-                            }
-                        } else if (message.match(/^id:|^retry:/)) {
-                            console.log("Received SSE field:", message);
-                        } else if (message.trim() !== '') {
-                            console.warn("Received unexpected SSE message format:", message);
-                        }
-                        boundary = accumulatedData.indexOf('\n\n');
-                    }
-
-                    if (done) {
-                        console.log("Stream finished.");
-                        if (currentReader === reader) currentReader = null;
-                        if (resultsDisplay && resultsDisplay.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
-                             showAlert("The connection closed before processing completed. Please try again.", "warning");
-                             if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
-                        }
-                        return;
-                    }
-                    return reader.read().then(processStream);
+                    // Display results
+                    displayFinalResultsAndAnimate(data.results, year, quarter);
                 }
-                return reader.read().then(processStream);
-            })
-            .catch(error => {
-                if (error.name === 'AbortError') {
-                    console.log('Fetch request was aborted.');
-                    return; 
-                }
-                console.error('Error during fetch/stream processing:', error);
-                showAlert(`An error occurred: ${error.message}`, 'danger');
-                currentReader = null;
-                currentAbortController = null;
-                if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
-            });
+            } catch (error) {
+                console.error('Error during fetch:', error);
+                showAlert(`Error: ${error.message}`, 'danger');
+                
+                // Update UI to show error state
+                progressLogDisplay.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        ${error.message}
+                    </div>`;
+            }
         });
     } else {
         console.error("Course form element not found.");
