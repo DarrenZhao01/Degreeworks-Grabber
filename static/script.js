@@ -464,9 +464,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (done) {
                         console.log("Stream finished.");
                         if (currentReader === reader) currentReader = null;
-                        if (resultsDisplay && resultsDisplay.classList.contains('d-none') && !alertArea.innerHTML.includes('Server error')) {
+                        const hasServerError = alertArea && alertArea.innerHTML.includes('Server error');
+                        if (resultsDisplay && resultsDisplay.classList.contains('d-none') && !hasServerError) {
                              showAlert("The connection closed before processing completed. Please try again.", "warning");
-                             if(progressLogDisplay) progressLogDisplay.classList.add('d-none');
+                             if (progressLogDisplay) progressLogDisplay.classList.add('d-none');
                         }
                         return;
                     }
