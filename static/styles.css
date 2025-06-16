@@ -389,10 +389,15 @@ body.search-view .output-column {
 /* Responsive adjustments - For large screens, the two-column layout is default */
 /* For smaller screens, stack them and adjust behavior */
 @media (max-width: 991.98px) {
-        .app-container {
-                flex-direction: column;
-                min-height: auto; /* Allow content to define height */
-        }
+       .feedback-link {
+               position: static !important;
+               display: block;
+               margin: 0.5rem;
+       }
+       .app-container {
+               flex-direction: column;
+               min-height: auto; /* Allow content to define height */
+       }
 
         body.initial-view .input-column,
         body.search-view .input-column {
