@@ -421,18 +421,49 @@ def get_sections(dept, num, year, quarter):
 
 
 def format_meeting_string(m):
-     if isinstance(m, str): return m
-     days = m.get('days') or m.get('dayOfWeek') or ''
-     start_time = m.get('beginTime') or m.get('startTime') or ''
-     end_time = m.get('endTime') or m.get('timeEnd') or ''
-     building = m.get('bldgName') or m.get('building') or ''
-     room = m.get('room', '')
-     time_str = f"{start_time}-{end_time}" if start_time and end_time else start_time or end_time or ''
-     time_str = time_str.strip('-')
-     location_str = f"{building} {room}".strip() if building else ''
-     parts = [part for part in [days, time_str, location_str] if part]
-     meeting_string = " ".join(parts).strip()
-     return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
+    if isinstance(m, str):
+        return m
+
+    days = m.get('days') or m.get('dayOfWeek') or ''
+
+    start_time = m.get('beginTime') or m.get('startTime') or ''
+    end_time = m.get('endTime') or m.get('timeEnd') or ''
+
+    if not (start_time or end_time):
+        time_field = m.get('time')
+        if isinstance(time_field, str):
+            time_field = time_field.strip()
+            if '-' in time_field:
+                start_part, end_part = [p.strip() for p in time_field.split('-', 1)]
+                am_pm = ''
+                if end_part and end_part[-1].lower() in ['a', 'p']:
+                    am_pm = 'am' if end_part[-1].lower() == 'a' else 'pm'
+                    end_part = end_part[:-1]
+                start_time = f"{start_part}{am_pm}" if start_part else ''
+                end_time = f"{end_part}{am_pm}" if end_part else ''
+            else:
+                start_time = time_field
+
+    building = m.get('bldgName') or m.get('building')
+    if not building:
+        bldg = m.get('bldg')
+        if isinstance(bldg, list) and bldg:
+            building = bldg[0]
+        elif isinstance(bldg, str):
+            building = bldg
+        else:
+            building = ''
+    room = m.get('room', '')
+
+    time_str = f"{start_time}-{end_time}" if start_time and end_time else start_time or end_time or ''
+    time_str = time_str.strip('-')
+
+    location_str = f"{building} {room}".strip() if building else ''
+
+    parts = [part for part in [days, time_str, location_str] if part]
+    meeting_string = " ".join(parts).strip()
+
+    return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
 
 
 # --- Unit Tests for Parser ---
