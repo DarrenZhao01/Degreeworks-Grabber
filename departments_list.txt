@@ -1,0 +1,76 @@
+Department Code | Department Name
+--------------------------------------------------
+AC ENG          | Academic English
+AFAM            | African American Studies
+ANATOMY         | Anatomy and Neurobiology
+ANTHRO          | Anthropology
+ARABIC          | Arabic
+ARMN            | Armenian
+ART             | Art
+ART HIS         | Art History
+ARTS            | Arts
+ASIANAM         | Asian American Studies
+BANA            | Business Analytics
+BATS            | Biomedical and Translational Science
+BIO SCI         | Biological Sciences
+BIOCHEM         | Biological Chemistry
+BME             | Biomedical Engineering
+CBE             | Chemical and Biomolecular Engineering
+CBEMS           | Chemical Engineering and Materials Science
+CHC/LAT         | Chicano/Latino Studies
+CHEM            | Chemistry
+CHINESE         | Chinese
+CLASSIC         | Classics
+CLT&THY         | Culture and Theory
+COGS            | Cognitive Sciences
+COM LIT         | Comparative Literature
+COMPSCI         | Computer Science
+CRITISM         | Criticism
+CRM/LAW         | Criminology, Law and Society
+CSE             | Computer Science and Engineering
+DANCE           | Dance
+DATA            | Data Science
+DEV BIO         | Developmental and Cell Biology
+DRAMA           | Drama
+E ASIAN         | East Asian Languages and Literatures
+EARTHSS         | Earth System Science
+EAS             | East Asian Studies
+ECO EVO         | Ecology and Evolutionary Biology
+ECON            | Economics
+ECPS            | Embedded and Cyber-Physical Systems
+EDUC            | Education
+EECS            | Electrical Engineering & Computer Science
+EHS             | Environmental Health Sciences
+ENGLISH         | English
+ENGR            | Engineering
+ENGRCEE         | Civil and Environmental Engineering
+ENGRMAE         | Mechanical and Aerospace Engineering
+ENGRMSE         | Materials Science and Engineering
+EPIDEM          | Epidemiology
+EURO ST         | European Studies
+FIN             | Finance
+FLM&MDA         | Film and Media Studies
+FRENCH          | French
+GDIM            | Game Design and Interactive Media
+GEN&SEX         | Gender and Sexuality Studies
+GERMAN          | German
+GLBL ME         | Global Middle East Studies
+GLBLCLT         | Global Cultures
+GREEK           | Greek
+HEBREW          | Hebrew
+HISTORY         | History
+HUMAN           | Humanities
+I&C SCI         | Information and Computer Science
+IN4MATX         | Informatics
+INNO            | Innovation and Entrepreneurship
+INTL ST         | International Studies
+IRAN            | Iranian Studies
+ITALIAN         | Italian
+JAPANSE         | Japanese
+KOREAN          | Korean
+LATIN           | Latin
+LINGUIS         | Linguistics
+LIT JRN         | Literary Journalism
+LPS             | Logic and Philosophy of Science
+LSCI            | Language Science
+MATH            | Mathematics

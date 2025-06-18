@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = "public"
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run build"
+  publish = "public"
+  port = 8888
+  
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200 
