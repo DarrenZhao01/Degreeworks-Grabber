@@ -20,7 +20,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
-    <script src="/static/script.js" defer></script>
 </head>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-50HK1LKTSN"></script>
 <script>
@@ -112,6 +111,11 @@
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="waitlisted-tab" data-bs-toggle="tab" data-bs-target="#waitlisted-courses" type="button" role="tab" aria-controls="waitlisted-courses" aria-selected="false">
+                                    <i class="fas fa-minus me-1 text-warning"></i> Waitlisted
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="unavailable-tab" data-bs-toggle="tab" data-bs-target="#unavailable-courses" type="button" role="tab" aria-controls="unavailable-courses" aria-selected="false">
                                     <i class="fas fa-times-circle me-1 text-danger"></i> Unavailable
                                 </button>
@@ -126,6 +130,8 @@
 
                     <div class="tab-content pt-3" id="filterTabContent">
                         <div class="tab-pane fade show active" id="available-courses" role="tabpanel" aria-labelledby="available-tab">
+                        </div>
+                        <div class="tab-pane fade" id="waitlisted-courses" role="tabpanel" aria-labelledby="waitlisted-tab">
                         </div>
                         <div class="tab-pane fade" id="unavailable-courses" role="tabpanel" aria-labelledby="unavailable-tab">
                         </div>

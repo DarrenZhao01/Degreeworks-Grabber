@@ -12,13 +12,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const yearInput = document.getElementById('year');
     const quarterSelect = document.getElementById('quarter');
     
-    const allCoursesPane = resultsDisplay.querySelector('#all-courses');
-    const availableCoursesPane = resultsDisplay.querySelector('#available-courses');
-    const unavailableCoursesPane = resultsDisplay.querySelector('#unavailable-courses');
+    // Check if resultsDisplay exists before trying to query it
+    let allCoursesPane = null;
+    let availableCoursesPane = null;
+    let waitlistedCoursesPane = null;
+    let unavailableCoursesPane = null;
     
-    const filterTabs = resultsDisplay.querySelector('#filterTabs');
-    const expandAllBtn = resultsDisplay.querySelector('#expandAllBtn');
-    const collapseAllBtn = resultsDisplay.querySelector('#collapseAllBtn');
+    if (resultsDisplay) {
+        allCoursesPane = resultsDisplay.querySelector('#all-courses');
+        availableCoursesPane = resultsDisplay.querySelector('#available-courses');
+        waitlistedCoursesPane = resultsDisplay.querySelector('#waitlisted-courses');
+        unavailableCoursesPane = resultsDisplay.querySelector('#unavailable-courses');
+    } else {
+        console.error("Results display element not found!");
+    }
+    
+    const filterTabs = resultsDisplay ? resultsDisplay.querySelector('#filterTabs') : null;
+    const expandAllBtn = resultsDisplay ? resultsDisplay.querySelector('#expandAllBtn') : null;
+    const collapseAllBtn = resultsDisplay ? resultsDisplay.querySelector('#collapseAllBtn') : null;
 
     let eventSource = null;
     let currentAbortController = null;
@@ -78,6 +89,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.warn("Error cancelling reader:", err)
             );
             currentReader = null;
+        }
+        if (window.currentEventSource) {
+            window.currentEventSource.close();
+            console.log("Previous EventSource closed.");
+            window.currentEventSource = null;
         }
         if (eventSource) {
             eventSource.close();
@@ -151,7 +167,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const courseCard = document.createElement('div');
         const isAvailable = isCourseAvailable(course);
-        courseCard.className = `card course-card ${isAvailable ? 'course-card-available' : ''}`; 
+        const isWaitlisted = isCourseWaitlisted(course);
+        
+        let cardClass = 'card course-card';
+        if (isAvailable) {
+            cardClass += ' course-card-available';
+        } else if (isWaitlisted) {
+            cardClass += ' course-card-waitlisted';
+        }
+        
+        courseCard.className = cardClass;
         const collapseId = `${idPrefix}-collapse-${Date.now()}${Math.random().toString(36).substring(2,7)}`;
         const headerId = `${idPrefix}-header-${Date.now()}${Math.random().toString(36).substring(2,7)}`;
 
@@ -252,17 +277,59 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
     }
 
+    function isCourseWaitlisted(course) {
+        if (!course || typeof course !== 'object' || !course.sections || typeof course.sections !== 'object' || Object.keys(course.sections).length === 0) return false;
+        let hasWaitlistedSections = false;
+        let hasOpenSections = false;
+        
+        for (const type in course.sections) {
+            if (Array.isArray(course.sections[type])) {
+                for (const section of course.sections[type]) {
+                    if (section && typeof section === 'object' && section.status && typeof section.status === 'string') {
+                        const status = section.status.toLowerCase();
+                        if (status === 'open') {
+                            hasOpenSections = true;
+                        } else if (status === 'waitl') {
+                            hasWaitlistedSections = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Return true only if course has waitlisted sections but no open sections
+        return hasWaitlistedSections && !hasOpenSections;
+    }
+
     function displayFinalResultsAndAnimate(finalResults, year, quarter) {
         if (progressLogDisplay) progressLogDisplay.classList.add('d-none');
         if (resultsDisplay) resultsDisplay.classList.remove('d-none');
 
-        if (!allCoursesPane || !availableCoursesPane || !unavailableCoursesPane) {
+        // Re-query elements if they weren't found during initial load
+        if (!allCoursesPane || !availableCoursesPane || !waitlistedCoursesPane || !unavailableCoursesPane) {
+            console.log('Re-querying result pane elements...');
+            if (resultsDisplay) {
+                allCoursesPane = resultsDisplay.querySelector('#all-courses');
+                availableCoursesPane = resultsDisplay.querySelector('#available-courses');
+                waitlistedCoursesPane = resultsDisplay.querySelector('#waitlisted-courses');
+                unavailableCoursesPane = resultsDisplay.querySelector('#unavailable-courses');
+            }
+        }
+
+        if (!allCoursesPane || !availableCoursesPane || !waitlistedCoursesPane || !unavailableCoursesPane) {
              console.error("One or more result pane elements not found for final display.");
+             console.error("Missing elements:", {
+                 allCoursesPane: !!allCoursesPane,
+                 availableCoursesPane: !!availableCoursesPane, 
+                 waitlistedCoursesPane: !!waitlistedCoursesPane,
+                 unavailableCoursesPane: !!unavailableCoursesPane
+             });
              return;
         }
 
         allCoursesPane.innerHTML = '';
         availableCoursesPane.innerHTML = '';
+        waitlistedCoursesPane.innerHTML = '';
         unavailableCoursesPane.innerHTML = '';
 
         const defaultEmptyMessage = '<p class="empty-tab-message">No courses found matching your criteria.</p>';
@@ -270,14 +337,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Array.isArray(finalResults) || finalResults.length === 0) {
             allCoursesPane.innerHTML = defaultEmptyMessage;
             availableCoursesPane.innerHTML = defaultEmptyMessage;
+            waitlistedCoursesPane.innerHTML = defaultEmptyMessage;
             unavailableCoursesPane.innerHTML = defaultEmptyMessage;
         } else {
             let availableCount = 0;
+            let waitlistedCount = 0;
             let unavailableCount = 0;
 
             finalResults.forEach((course, index) => {
                 const allIdPrefix = `all-${index}`;
                 const availIdPrefix = `avail-${index}`;
+                const waitIdPrefix = `wait-${index}`;
                 const unavailIdPrefix = `unavail-${index}`;
 
                 const allCard = createCourseCard(course, allIdPrefix, year, quarter);
@@ -286,11 +356,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const isAvailable = isCourseAvailable(course);
+                const isWaitlisted = isCourseWaitlisted(course);
+                
                 if (isAvailable) {
                     const availableCard = createCourseCard(course, availIdPrefix, year, quarter);
                     if (availableCard) {
                         availableCoursesPane.appendChild(availableCard);
                         availableCount++;
+                    }
+                } else if (isWaitlisted) {
+                    const waitlistedCard = createCourseCard(course, waitIdPrefix, year, quarter);
+                    if (waitlistedCard) {
+                        waitlistedCoursesPane.appendChild(waitlistedCard);
+                        waitlistedCount++;
                     }
                 } else {
                     const unavailableCard = createCourseCard(course, unavailIdPrefix, year, quarter);
@@ -302,6 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (availableCount === 0) availableCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with open sections found.</p>';
+            if (waitlistedCount === 0) waitlistedCoursesPane.innerHTML = '<p class="empty-tab-message">No courses with waitlisted-only sections found.</p>';
             if (unavailableCount === 0) unavailableCoursesPane.innerHTML = '<p class="empty-tab-message">No unavailable courses found.</p>';
             if (allCoursesPane.childElementCount === 0 && finalResults.length > 0) {
                  allCoursesPane.innerHTML = '<p class="empty-tab-message">Could not display any courses in the "All" tab.</p>';
@@ -310,7 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             setTimeout(() => {
-                const panesToAnimate = [allCoursesPane, availableCoursesPane, unavailableCoursesPane];
+                const panesToAnimate = [allCoursesPane, availableCoursesPane, waitlistedCoursesPane, unavailableCoursesPane];
                 panesToAnimate.forEach(pane => {
                     if (pane) { 
                         const cardsInPane = pane.querySelectorAll('.course-card');
@@ -384,45 +463,76 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelOngoingSearch();
 
             try {
-                // Update to use Netlify function
-                const response = await fetch('/.netlify/functions/stream_process', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        input_text: inputText,
-                        year: year,
-                        quarter: quarter
-                    })
+                // Create EventSource for Server-Sent Events
+                const eventSource = new EventSource('/stream_process?' + new URLSearchParams({
+                    input_text: inputText,
+                    year: year,
+                    quarter: quarter
+                }));
+                
+                // Store reference for cancellation
+                window.currentEventSource = eventSource;
+
+                eventSource.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.type === 'progress') {
+                            const progressBar = progressLogDisplay.querySelector('.progress-bar');
+                            const progressText = progressLogDisplay.querySelector('.current-progress-text');
+                            if (progressBar) {
+                                progressBar.style.width = `${data.value}%`;
+                                progressBar.setAttribute('aria-valuenow', data.value);
+                            }
+                            if (progressText) {
+                                progressText.textContent = data.message || 'Processing...';
+                            }
+                        } else if (data.type === 'log') {
+                            const progressText = progressLogDisplay.querySelector('.current-progress-text');
+                            if (progressText) {
+                                progressText.textContent = data.message;
+                            }
+                        } else if (data.type === 'complete') {
+                            eventSource.close();
+                            window.currentEventSource = null;
+                            
+                            // Update progress to 100%
+                            const progressBar = progressLogDisplay.querySelector('.progress-bar');
+                            const progressText = progressLogDisplay.querySelector('.current-progress-text');
+                            if (progressBar) progressBar.style.width = '100%';
+                            if (progressText) progressText.textContent = 'Search complete!';
+                            
+                            // Display results
+                            displayFinalResultsAndAnimate(data.results, year, quarter);
+                        } else if (data.type === 'error') {
+                            eventSource.close();
+                            window.currentEventSource = null;
+                            throw new Error(data.message);
+                        }
+                    } catch (parseError) {
+                        console.error('Error parsing SSE data:', parseError);
+                    }
+                };
+
+                eventSource.addEventListener('keepalive', function(event) {
+                    // Keep-alive event, do nothing
+                    console.log('Received keep-alive');
                 });
 
-                if (!response.ok) {
-                    let errorText = 'Server error occurred';
-                    try {
-                        const errorData = await response.json();
-                        errorText = errorData.message || errorText;
-                    } catch (e) {
-                        console.error('Error parsing error response:', e);
-                    }
-                    throw new Error(errorText);
-                }
-
-                // Process the JSON response (instead of event stream)
-                const data = await response.json();
-                
-                if (data.type === 'error') {
-                    throw new Error(data.message);
-                } else if (data.type === 'complete') {
-                    // Update progress to 100%
-                    const progressBar = progressLogDisplay.querySelector('.progress-bar');
-                    const progressText = progressLogDisplay.querySelector('.current-progress-text');
-                    if (progressBar) progressBar.style.width = '100%';
-                    if (progressText) progressText.textContent = 'Search complete!';
+                eventSource.onerror = function(event) {
+                    eventSource.close();
+                    window.currentEventSource = null;
+                    console.error('EventSource error:', event);
+                    showAlert('Connection error occurred. Please try again.', 'danger');
                     
-                    // Display results
-                    displayFinalResultsAndAnimate(data.results, year, quarter);
-                }
+                    // Update UI to show error state
+                    progressLogDisplay.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            Connection error occurred. Please try again.
+                        </div>`;
+                };
+
             } catch (error) {
                 console.error('Error during fetch:', error);
                 showAlert(`Error: ${error.message}`, 'danger');

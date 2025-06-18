@@ -33,8 +33,29 @@ body {
         align-items: center;
 }
 
+/* Header visibility control */
+.input-elements-content header {
+        transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+}
+
+/* Hide header when not in initial view */
+body:not(.initial-view) .input-elements-content header {
+        opacity: 0;
+        transform: translateY(-20px);
+        pointer-events: none;
+        margin-bottom: 0;
+        height: 0;
+        overflow: hidden;
+}
+
+/* Ensure form content stays centered when header is hidden */
+body:not(.initial-view) .input-elements-content {
+        justify-content: center;
+}
+
 .output-column {
         padding: 20px;
+        width: 100%;
         box-sizing: border-box;
         background-color: #ffffff; /* White background for the rounded box */
         border-radius: 12px; /* Rounded corners */
@@ -151,7 +172,6 @@ body.search-view .output-column {
         flex-direction: column;
 }
 .filter-controls-container {
-        padding-bottom: 0.5rem; /* Space below filters */
         background-color: #ffffff; /* Ensure filters are on white bg */
         position: sticky; /* Make filters sticky */
         top: 0;
@@ -265,6 +285,19 @@ body.search-view .output-column {
 }
 .course-card.course-card-available .card-header .antalmanac-link-icon:hover {
         color: #0b3d25;
+}
+
+.course-card.course-card-waitlisted .card-header {
+        background-color: #fff3cd;
+        color: #664d03;
+        border-color: #ffecb5;
+}
+.course-card.course-card-waitlisted .card-header .collapse-arrow,
+.course-card.course-card-waitlisted .card-header .antalmanac-link-icon {
+        color: #664d03;
+}
+.course-card.course-card-waitlisted .card-header .antalmanac-link-icon:hover {
+        color: #533b02;
 }
 
 .course-card .card-body-wrapper {

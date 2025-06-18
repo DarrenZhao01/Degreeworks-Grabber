@@ -75,12 +75,129 @@ if not API_KEY:
 
 # --- Helper Functions (Using Locally Defined Exceptions) ---
 
+# Load valid department codes from file
+def load_department_codes():
+    """
+    Load valid department codes from the complete_departments_list.txt file.
+    Returns a set of valid department codes for fast lookup.
+    """
+    dept_codes = set()
+    try:
+        with open('complete_departments_list.txt', 'r', encoding='utf-8') as f:
+            for line in f:
+                if '|' in line and not line.startswith('Department Code'):
+                    dept_code = line.split('|')[0].strip()
+                    if dept_code and dept_code != '--------------------------------------------------------------------------------':
+                        dept_codes.add(dept_code)
+    except FileNotFoundError:
+        app.logger.warning("complete_departments_list.txt not found. Falling back to basic parsing.")
+        # Fallback to some common department codes if file is missing
+        dept_codes = {'COMPSCI', 'I&C SCI', 'MATH', 'PHYSICS', 'CHEM', 'BIO SCI', 'ENGLISH', 'HISTORY'}
+    except Exception as e:
+        app.logger.warning(f"Error loading department codes: {e}. Falling back to basic parsing.")
+        dept_codes = {'COMPSCI', 'I&C SCI', 'MATH', 'PHYSICS', 'CHEM', 'BIO SCI', 'ENGLISH', 'HISTORY'}
+    
+    return dept_codes
+
+# Load department codes once at startup
+VALID_DEPT_CODES = load_department_codes()
+
+def expand_course_range(start_num, end_num):
+    """
+    Expands a course number range like "111:121" into individual course numbers.
+    Handles both numeric and alphanumeric course numbers.
+    Returns a list of course number strings.
+    """
+    try:
+        # Extract numeric parts and letters
+        start_match = re.match(r'^([A-Z]?)(\d+)([A-Z]*)$', start_num.upper())
+        end_match = re.match(r'^([A-Z]?)(\d+)([A-Z]*)$', end_num.upper())
+        
+        if not start_match or not end_match:
+            # If we can't parse the range, return both endpoints
+            return [start_num, end_num]
+        
+        start_prefix, start_digits, start_suffix = start_match.groups()
+        end_prefix, end_digits, end_suffix = end_match.groups()
+        
+        # Only expand if prefixes match and numeric parts match
+        if start_prefix != end_prefix or start_digits != end_digits:
+            # If prefixes don't match OR numeric parts don't match, 
+            # try numeric expansion if suffixes are empty
+            if not start_suffix and not end_suffix:
+                # Pure numeric range
+                start_int = int(start_digits)
+                end_int = int(end_digits)
+                
+                if start_int > end_int:
+                    return [start_num, end_num]
+                
+                expanded = []
+                for i in range(start_int, end_int + 1):
+                    course_num = f"{start_prefix}{i}"
+                    expanded.append(course_num)
+                
+                return expanded
+            else:
+                return [start_num, end_num]
+        
+        # If numeric parts match, expand by suffix
+        if start_suffix and end_suffix and len(start_suffix) == 1 and len(end_suffix) == 1:
+            # Single letter suffix expansion (e.g., 2A:2D)
+            start_char = ord(start_suffix)
+            end_char = ord(end_suffix)
+            
+            if start_char > end_char:
+                return [start_num, end_num]
+            
+            expanded = []
+            for char_code in range(start_char, end_char + 1):
+                suffix = chr(char_code)
+                course_num = f"{start_prefix}{start_digits}{suffix}"
+                expanded.append(course_num)
+            
+            return expanded
+        elif not start_suffix and not end_suffix:
+            # No suffixes, should have been handled above
+            return [start_num, end_num]
+        else:
+            # Complex suffixes or mismatched suffix lengths
+            return [start_num, end_num]
+        
+    except (ValueError, AttributeError):
+        # If anything goes wrong, return both endpoints
+        return [start_num, end_num]
+
+def expand_course_placeholder(base_num):
+    """
+    Expands a course placeholder like "122@" into likely course variants.
+    Returns a list of (course_number, is_placeholder) tuples.
+    """
+    # Remove the @ symbol
+    base = base_num.rstrip('@')
+    
+    # Common suffixes at UCI
+    common_suffixes = ['A', 'B', 'C', 'D', 'E', 'W']
+    
+    expanded = []
+    for suffix in common_suffixes:
+        expanded.append((f"{base}{suffix}", True))  # Mark as placeholder-derived
+    
+    # Also include the base number without suffix
+    expanded.append((base, True))
+    
+    return expanded
+
 def parse_courses(input_text):
     """
-    Parses a DegreeWorks-style string into a list of (department, course_number) tuples.
-    Handles multi-word department codes, various spacing/formatting issues,
-    and ignores common prefixes like "X Class(es) in".
-    Example: "1 Class in ANTHRO 2A, 20A, ARABIC 2A, 2B"
+    Enhanced parser for DegreeWorks-style strings that handles:
+    - Range notation (e.g., "111:121" expands to 111, 112, 113, ..., 121)
+    - Placeholder notation (e.g., "122@" expands to 122A, 122B, 122C, etc.)
+    - Multi-word department codes and various spacing/formatting issues
+    - Common prefixes like "X Class(es) in"
+    
+    Example: "COMPSCI 103, 111:121, 122@"
+    
     Raises:
         ParsingError: If the input text is empty or only whitespace after cleaning.
         InvalidInputError: If no valid courses can be extracted after processing.
@@ -95,78 +212,155 @@ def parse_courses(input_text):
 
     courses = []
     potential_errors = []
+    placeholder_warnings = []
     parts = [part.strip() for part in cleaned_text.split(',') if part.strip()]
     current_dept = None 
 
     for part in parts:
-        tokens = [token for token in part.split() if token]
+        tokens = [token.strip() for token in part.split() if token.strip()]
         if not tokens:
             continue 
 
-        # Special handling for department codes with ampersands
-        processed_tokens = []
-        for token in tokens:
-            # Handle cases like "I&CSCI" -> "I&C" "SCI"
-            if '&' in token and token.upper() == token and len(token) > 3:
-                # Find the position of & and split after it if there are at least 2 chars after &
-                amp_pos = token.find('&')
-                if amp_pos > 0 and amp_pos < len(token) - 2:
-                    # Insert a space after the character following the &
-                    split_tokens = [token[:amp_pos+2], token[amp_pos+2:]]
-                    processed_tokens.extend(split_tokens)
-                else:
-                    processed_tokens.append(token)
-            else:
-                processed_tokens.append(token)
+        # Try to find the longest matching department code first
+        best_dept_match = None
+        best_match_length = 0
         
-        tokens = processed_tokens
-
-        dept_words = [] 
-        i = 0
-        while i < len(tokens):
-            token = tokens[i]
-
-            is_likely_num = bool(
-                (re.search(r'\d', token) and not (token.isalpha() and len(token) > 5)) or
-                re.match(r'^[A-Z]?\d+[A-Z]*$', token, re.IGNORECASE) or
-                re.match(r'^\d+[A-Z]+$', token, re.IGNORECASE)
-            )
-
-            is_likely_dept_word = bool(re.match(r'^[A-Z&/]+$', token, re.IGNORECASE))
-
-            if is_likely_num:
-                if dept_words:
-                    current_dept = " ".join(dept_words)
-                    courses.append((current_dept, token.upper())) 
-                    dept_words = [] 
-                elif current_dept:
-                    courses.append((current_dept, token.upper())) 
-                else:
-                    potential_errors.append(f"Course number '{token}' found without preceding department.")
-            elif is_likely_dept_word:
-                dept_words.append(token.upper()) 
-            else:
-                if token.isalpha():
-                     dept_words.append(token.upper())
-                else:
-                    potential_errors.append(f"Skipping invalid token: '{token}'.")
-            i += 1
+        # Check all possible combinations of tokens as potential department codes
+        for i in range(len(tokens)):
+            for j in range(i + 1, len(tokens) + 1):
+                potential_dept = " ".join(tokens[i:j]).upper()
+                
+                # Direct match with valid department codes
+                if potential_dept in VALID_DEPT_CODES:
+                    if j - i > best_match_length:
+                        best_dept_match = (potential_dept, i, j)
+                        best_match_length = j - i
+                
+                # Handle special cases like "I&CSCI" -> "I&C SCI"
+                if '&' in potential_dept and len(potential_dept) > 3:
+                    # Try splitting after & + one character
+                    for split_pos in range(1, len(potential_dept)):
+                        if potential_dept[split_pos-1] == '&' and split_pos + 1 < len(potential_dept):
+                            modified_dept = potential_dept[:split_pos+1] + " " + potential_dept[split_pos+1:]
+                            if modified_dept in VALID_DEPT_CODES:
+                                if j - i > best_match_length:
+                                    best_dept_match = (modified_dept, i, j)
+                                    best_match_length = j - i
         
-        if dept_words:
-            current_dept = " ".join(dept_words)
+        # If we found a department match, process the remaining tokens as course numbers
+        if best_dept_match:
+            dept_code, start_idx, end_idx = best_dept_match
+            current_dept = dept_code
+            
+            # Look for course numbers in the remaining tokens
+            remaining_tokens = tokens[:start_idx] + tokens[end_idx:]
+            
+            for token in remaining_tokens:
+                token_upper = token.upper()
+                
+                # Check for range notation (e.g., "111:121")
+                if ':' in token_upper:
+                    range_parts = token_upper.split(':')
+                    if len(range_parts) == 2:
+                        start_course, end_course = range_parts
+                        expanded_range = expand_course_range(start_course.strip(), end_course.strip())
+                        for course_num in expanded_range:
+                            courses.append((current_dept, course_num))
+                        continue
+                
+                # Check for placeholder notation (e.g., "122@")
+                if token_upper.endswith('@'):
+                    placeholder_courses = expand_course_placeholder(token_upper)
+                    for course_num, is_placeholder in placeholder_courses:
+                        courses.append((current_dept, course_num))
+                    placeholder_warnings.append(f"'{token}' is a DegreeWorks placeholder. Expanded to common variants: {', '.join([c[0] for c in placeholder_courses])}")
+                    continue
+                
+                # Regular course number processing
+                if re.match(r'^[A-Z]?\d+[A-Z]*$', token_upper) or re.match(r'^\d+[A-Z]*$', token_upper):
+                    courses.append((current_dept, token_upper))
+                elif re.search(r'\d', token) and len(token) <= 6:  # Likely a course number with mixed format
+                    courses.append((current_dept, token_upper))
+                else:
+                    # Token doesn't look like a course number
+                    if token.isalpha() and len(token) <= 3:
+                        # Might be a course suffix, add it anyway
+                        courses.append((current_dept, token_upper))
+                    else:
+                        potential_errors.append(f"Skipping unrecognized token '{token}' after department '{dept_code}'.")
+        
+        else:
+            # No department match found, try to use current_dept for course numbers
+            course_numbers_found = False
+            for token in tokens:
+                token_upper = token.upper()
+                
+                # Check for range notation
+                if ':' in token_upper and current_dept:
+                    range_parts = token_upper.split(':')
+                    if len(range_parts) == 2:
+                        start_course, end_course = range_parts
+                        expanded_range = expand_course_range(start_course.strip(), end_course.strip())
+                        for course_num in expanded_range:
+                            courses.append((current_dept, course_num))
+                        course_numbers_found = True
+                        continue
+                
+                # Check for placeholder notation
+                if token_upper.endswith('@') and current_dept:
+                    placeholder_courses = expand_course_placeholder(token_upper)
+                    for course_num, is_placeholder in placeholder_courses:
+                        courses.append((current_dept, course_num))
+                    placeholder_warnings.append(f"'{token}' is a DegreeWorks placeholder. Expanded to common variants: {', '.join([c[0] for c in placeholder_courses])}")
+                    course_numbers_found = True
+                    continue
+                
+                # Regular course number checks
+                if re.match(r'^[A-Z]?\d+[A-Z]*$', token_upper) or re.match(r'^\d+[A-Z]*$', token_upper):
+                    if current_dept:
+                        courses.append((current_dept, token_upper))
+                        course_numbers_found = True
+                    else:
+                        potential_errors.append(f"Course number '{token}' found without preceding department.")
+                elif re.search(r'\d', token) and len(token) <= 6:  # Likely a course number
+                    if current_dept:
+                        courses.append((current_dept, token_upper))
+                        course_numbers_found = True
+                    else:
+                        potential_errors.append(f"Course number '{token}' found without preceding department.")
+            
+            # If no course numbers were found, maybe this part contains an unrecognized department
+            if not course_numbers_found:
+                # Try to guess department by checking if tokens look like department codes
+                potential_dept_tokens = []
+                for token in tokens:
+                    if (token.isalpha() and token.isupper()) or ('&' in token):
+                        potential_dept_tokens.append(token.upper())
+                
+                if potential_dept_tokens:
+                    guessed_dept = " ".join(potential_dept_tokens)
+                    potential_errors.append(f"Unrecognized department code '{guessed_dept}'. Please check spelling.")
+                else:
+                    potential_errors.append(f"Could not parse tokens: {tokens}")
     
     if not courses:
         error_message = "No valid courses could be parsed from the input string."
-        critical_errors = [e for e in potential_errors if "without preceding department" in e or "invalid token" in e]
+        critical_errors = [e for e in potential_errors if "without preceding department" in e]
         if critical_errors:
             error_message += " Potential issues found: " + "; ".join(critical_errors)
         elif potential_errors: 
              error_message += " Potential issues found: " + "; ".join(potential_errors)
         raise InvalidInputError(error_message)
 
-    non_critical_errors = [e for e in potential_errors if "without preceding department" not in e and "invalid token" not in e]
-    if courses and non_critical_errors:
-        app.logger.warning(f"Parsing warnings for input '{input_text}': {'; '.join(non_critical_errors)}")
+    # Log non-critical warnings including placeholder expansions
+    all_warnings = []
+    non_critical_errors = [e for e in potential_errors if "without preceding department" not in e]
+    all_warnings.extend(non_critical_errors)
+    all_warnings.extend(placeholder_warnings)
+    
+    if courses and all_warnings:
+        app.logger.warning(f"Parsing warnings for input '{input_text}': {'; '.join(all_warnings)}")
+    
     return courses
 
 
@@ -255,6 +449,121 @@ class ParserTests(unittest.TestCase):
         expected = [("I&C SCI", "45C"), ("I&C SCI", "46")]
         self.assertEqual(result, expected)
 
+    def test_parse_courses_multi_word_departments(self):
+        """Test handling of multi-word department codes"""
+        result = parse_courses("2 Classes in BIO SCI 93, 94")
+        expected = [("BIO SCI", "93"), ("BIO SCI", "94")]
+        self.assertEqual(result, expected)
+        
+        result = parse_courses("1 Class in ART HIS 20A")
+        expected = [("ART HIS", "20A")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_mixed_departments(self):
+        """Test parsing with multiple different departments"""
+        result = parse_courses("3 Classes in COMPSCI 161, MATH 2A, PHYSICS 7A")
+        expected = [("COMPSCI", "161"), ("MATH", "2A"), ("PHYSICS", "7A")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_repeated_department(self):
+        """Test parsing where department is mentioned once for multiple courses"""
+        result = parse_courses("2 Classes in ANTHRO 2A, 20A")
+        expected = [("ANTHRO", "2A"), ("ANTHRO", "20A")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_complex_mixed(self):
+        """Test complex parsing with mixed department patterns"""
+        result = parse_courses("4 Classes in I&CSCI 45C, 46, MATH 2A, BIO SCI 93")
+        expected = [("I&C SCI", "45C"), ("I&C SCI", "46"), ("MATH", "2A"), ("BIO SCI", "93")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_with_prefixes(self):
+        """Test that common prefixes are properly ignored"""
+        result = parse_courses("1 Class in COMPSCI 161")
+        expected = [("COMPSCI", "161")]
+        self.assertEqual(result, expected)
+        
+        result = parse_courses("3 Classes in MATH 2A, 2B, 3A")
+        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "3A")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_edge_cases(self):
+        """Test edge cases and error handling"""
+        # Empty input
+        with self.assertRaises(ParsingError):
+            parse_courses("")
+        
+        # Only prefix
+        with self.assertRaises(ParsingError):
+            parse_courses("2 Classes in")
+        
+        # Invalid department
+        with self.assertRaises(InvalidInputError):
+            parse_courses("INVALIDdept 123")
+
+    def test_parse_courses_course_number_formats(self):
+        """Test various course number formats"""
+        result = parse_courses("MATH 2A, 2B, 10, 140A, H1A")
+        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "10"), ("MATH", "140A"), ("MATH", "H1A")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_range_notation(self):
+        """Test range notation like 111:121"""
+        result = parse_courses("COMPSCI 111:115")
+        expected = [("COMPSCI", "111"), ("COMPSCI", "112"), ("COMPSCI", "113"), ("COMPSCI", "114"), ("COMPSCI", "115")]
+        self.assertEqual(result, expected)
+        
+        # Test with letter suffixes
+        result = parse_courses("MATH 2A:2D")
+        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "2C"), ("MATH", "2D")]
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_placeholder_notation(self):
+        """Test placeholder notation like 122@"""
+        result = parse_courses("COMPSCI 122@")
+        # Should expand to common variants
+        expected_suffixes = ['A', 'B', 'C', 'D', 'E', 'W']
+        expected = [("COMPSCI", f"122{suffix}") for suffix in expected_suffixes]
+        expected.append(("COMPSCI", "122"))  # Base number without suffix
+        self.assertEqual(result, expected)
+
+    def test_parse_courses_complex_degreeworks_format(self):
+        """Test complex DegreeWorks format with ranges and placeholders"""
+        result = parse_courses("COMPSCI 103, 111:113, 122@")
+        expected = [
+            ("COMPSCI", "103"),
+            ("COMPSCI", "111"), ("COMPSCI", "112"), ("COMPSCI", "113"),
+            ("COMPSCI", "122A"), ("COMPSCI", "122B"), ("COMPSCI", "122C"), 
+            ("COMPSCI", "122D"), ("COMPSCI", "122E"), ("COMPSCI", "122W"), ("COMPSCI", "122")
+        ]
+        self.assertEqual(result, expected)
+
+    def test_expand_course_range(self):
+        """Test the expand_course_range helper function"""
+        # Test numeric range
+        result = expand_course_range("111", "115")
+        expected = ["111", "112", "113", "114", "115"]
+        self.assertEqual(result, expected)
+        
+        # Test with letter suffixes
+        result = expand_course_range("2A", "2D")
+        expected = ["2A", "2B", "2C", "2D"]
+        self.assertEqual(result, expected)
+        
+        # Test invalid range (different suffixes)
+        result = expand_course_range("111A", "115B")
+        expected = ["111A", "115B"]  # Should return endpoints
+        self.assertEqual(result, expected)
+
+    def test_expand_course_placeholder(self):
+        """Test the expand_course_placeholder helper function"""
+        result = expand_course_placeholder("122@")
+        expected = [
+            ("122A", True), ("122B", True), ("122C", True), 
+            ("122D", True), ("122E", True), ("122W", True), ("122", True)
+        ]
+        self.assertEqual(result, expected)
+
 # --- Routes ---
 
 @app.route('/')
@@ -265,18 +574,25 @@ def index():
 def tutorial():
     return render_template('tutorial.html')
 
-@app.route('/stream_process', methods=['POST'])
+@app.route('/stream_process', methods=['POST', 'GET'])
 def stream_process():
-    app.logger.info(f"Request to /stream_process received. Headers: {request.headers}") # Log request
+    app.logger.info(f"Request to /stream_process received. Method: {request.method}, Headers: {request.headers}") # Log request
     try:
-        data = request.get_json()
-        if not data:
-            app.logger.error("Invalid request format to /stream_process. Expected JSON.")
-            return jsonify({"type": "error", "message": "Invalid request format. Expected JSON."}), 400
-
-        input_text = data.get('input_text', '')
-        year = data.get('year', '')
-        quarter = data.get('quarter', '')
+        if request.method == 'POST':
+            # Handle POST request with JSON body
+            data = request.get_json()
+            if not data:
+                app.logger.error("Invalid request format to /stream_process. Expected JSON.")
+                return jsonify({"type": "error", "message": "Invalid request format. Expected JSON."}), 400
+            
+            input_text = data.get('input_text', '')
+            year = data.get('year', '')
+            quarter = data.get('quarter', '')
+        else:
+            # Handle GET request with query parameters (for EventSource)
+            input_text = request.args.get('input_text', '')
+            year = request.args.get('year', '')
+            quarter = request.args.get('quarter', '')
 
         app.logger.info(f"Processing request: Text='{input_text}', Year='{year}', Quarter='{quarter}'")
 
@@ -302,10 +618,22 @@ def stream_process():
 
     except (InvalidInputError, ParsingError) as e:
         app.logger.error(f"Input/Validation Error before streaming: {e}", exc_info=True)
-        return jsonify({"type": "error", "message": str(e)}), 400
+        if request.method == 'POST':
+            return jsonify({"type": "error", "message": str(e)}), 400
+        else:
+            # For GET requests (EventSource), return SSE error format
+            def error_generator():
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            return Response(error_generator(), mimetype='text/event-stream')
     except Exception as e:
         app.logger.error("Unexpected error during stream_process setup", exc_info=True)
-        return jsonify({"type": "error", "message": "An unexpected server error occurred during setup."}), 500
+        if request.method == 'POST':
+            return jsonify({"type": "error", "message": "An unexpected server error occurred during setup."}), 500
+        else:
+            # For GET requests (EventSource), return SSE error format
+            def error_generator():
+                yield f"data: {json.dumps({'type': 'error', 'message': 'An unexpected server error occurred during setup.'})}\n\n"
+            return Response(error_generator(), mimetype='text/event-stream')
 
 
     def generate_updates(course_list, req_year, req_quarter):
