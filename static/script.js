@@ -30,6 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const filterTabs = resultsDisplay ? resultsDisplay.querySelector('#filterTabs') : null;
     const expandAllBtn = resultsDisplay ? resultsDisplay.querySelector('#expandAllBtn') : null;
     const collapseAllBtn = resultsDisplay ? resultsDisplay.querySelector('#collapseAllBtn') : null;
+    const viewSelectionsBtn = resultsDisplay ? resultsDisplay.querySelector('#viewSelectionsBtn') : null;
+    const generateScheduleBtn = resultsDisplay ? resultsDisplay.querySelector('#generateScheduleBtn') : null;
+    const selectionListDiv = resultsDisplay ? resultsDisplay.querySelector('#selectionList') : null;
+
+    let currentResults = [];
+    let selectedCourses = [];
 
     let eventSource = null;
     let currentAbortController = null;
@@ -151,6 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : sectionCode;
 
         row.innerHTML = `
+            <td><input type="checkbox" class="section-select-checkbox" data-code="${sectionCode}"></td>
             <td data-label="Code">${codeLink}</td>
             <td data-label="Instructors">${safeSection.instructors || 'TBA'}</td>
             <td data-label="Status"><span class="badge ${statusBadgeClass} status-badge">${safeSection.status || 'Unknown'}</span></td>
@@ -250,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 typeHeader.textContent = typeNameMap[type] || type; cardBody.appendChild(typeHeader);
 
                 const table = document.createElement('table'); table.className = 'table table-hover table-sm';
-                const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
+                const thead = document.createElement('thead'); thead.innerHTML = `<tr><th>Select</th><th>Code</th><th>Instructors</th><th>Status</th><th>Meetings</th><th>Units</th></tr>`;
                 table.appendChild(thead);
                 const tbody = document.createElement('tbody');
                 sectionsOfType.forEach(section => {
@@ -259,6 +266,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 table.appendChild(tbody);
                 cardBody.appendChild(table);
             });
+
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'btn btn-sm btn-outline-primary mt-2';
+            saveBtn.textContent = 'Add Selection';
+            saveBtn.addEventListener('click', () => {
+                const checked = cardBody.querySelectorAll('.section-select-checkbox:checked');
+                const codes = Array.from(checked).map(cb => cb.dataset.code);
+                selectedCourses.push({ course: course, selectedSections: codes.length > 0 ? codes : null });
+                if (viewSelectionsBtn) viewSelectionsBtn.classList.remove('d-none');
+                showAlert(`${course.course} added`, 'success');
+            });
+            cardBody.appendChild(saveBtn);
         }
         collapseWrapper.appendChild(cardBody);
         courseCard.appendChild(collapseWrapper);
@@ -302,6 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function displayFinalResultsAndAnimate(finalResults, year, quarter) {
+        currentResults = Array.isArray(finalResults) ? finalResults : [];
         if (progressLogDisplay) progressLogDisplay.classList.add('d-none');
         if (resultsDisplay) resultsDisplay.classList.remove('d-none');
 
@@ -556,5 +576,37 @@ document.addEventListener('DOMContentLoaded', () => {
     if (collapseAllBtn) {
         collapseAllBtn.addEventListener('click', () => toggleAllCourses(false));
     } else { console.error("Collapse All button not found."); }
+
+    if (viewSelectionsBtn) {
+        viewSelectionsBtn.addEventListener('click', () => {
+            if (!selectionListDiv) return;
+            if (selectionListDiv.classList.contains('d-none')) {
+                selectionListDiv.innerHTML = selectedCourses.map((c, idx) => `<div>${idx+1}. ${c.course.course}</div>`).join('');
+                selectionListDiv.classList.remove('d-none');
+            } else {
+                selectionListDiv.classList.add('d-none');
+            }
+        });
+    }
+
+    if (generateScheduleBtn) {
+        generateScheduleBtn.addEventListener('click', () => {
+            if (selectedCourses.length === 0) { showAlert('No selections made', 'warning'); return; }
+            fetch('/generate_schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selections: selectedCourses })
+            })
+            .then(resp => resp.json())
+            .then(data => {
+                if (Array.isArray(data.schedules) && data.schedules.length > 0) {
+                    alert('Generated ' + data.schedules.length + ' schedules');
+                } else {
+                    alert('No valid schedules found');
+                }
+            })
+            .catch(err => { console.error(err); showAlert('Error generating schedules', 'danger'); });
+        });
+    }
 
 });
