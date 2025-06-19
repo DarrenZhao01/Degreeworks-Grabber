@@ -799,6 +799,20 @@ def stream_process():
     return response
 
 
+@app.route('/generate_schedule', methods=['POST'])
+def generate_schedule_route():
+    """Generate valid schedules from selected course sections."""
+    data = request.get_json() or {}
+    courses = data.get('courses', [])
+    try:
+        from schedule import generate_schedules
+        schedules = generate_schedules(courses)
+        return jsonify({"schedules": schedules})
+    except Exception as e:
+        app.logger.error(f"Error generating schedules: {e}")
+        return jsonify({"error": "Failed to generate schedules"}), 500
+
+
 # Run the Flask app
 if __name__ == '__main__':
     # Setup basic logging for when running directly (e.g., locally)
