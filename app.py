@@ -466,137 +466,6 @@ def format_meeting_string(m):
     return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
 
 
-def parse_days(days_str):
-    if not days_str:
-        return []
-    days_str = days_str.strip()
-    days = []
-    i = 0
-    while i < len(days_str):
-        if days_str[i:i+2] in ['Tu', 'Th', 'Sa', 'Su']:
-            days.append(days_str[i:i+2])
-            i += 2
-        else:
-            days.append(days_str[i])
-            i += 1
-    return days
-
-
-def convert_time_to_minutes(tstr):
-    if not tstr:
-        return None
-    tstr = tstr.strip().lower()
-    m = re.match(r'(\d{1,2})(?::(\d{2}))?(am|pm)?', tstr)
-    if not m:
-        return None
-    hour = int(m.group(1))
-    minute = int(m.group(2) or 0)
-    ampm = m.group(3)
-    if ampm:
-        if ampm == 'pm' and hour != 12:
-            hour += 12
-        if ampm == 'am' and hour == 12:
-            hour = 0
-    return hour * 60 + minute
-
-
-def parse_time_range(time_str):
-    if not time_str:
-        return None, None
-    ts = time_str.replace(' ', '').lower()
-    if '-' not in ts:
-        return None, None
-    start, end = ts.split('-', 1)
-    ampm = ''
-    if end.endswith('am') or end.endswith('pm'):
-        ampm = end[-2:]
-        end = end[:-2]
-    if ampm and not re.search('[ap]m$', start):
-        start += ampm
-    start_min = convert_time_to_minutes(start)
-    end_min = convert_time_to_minutes(end + (ampm if not re.search('[ap]m$', end) and ampm else ''))
-    return start_min, end_min
-
-
-def parse_meetings_list(meetings):
-    parsed = []
-    for m in meetings:
-        days = m.get('days') or m.get('dayOfWeek') or ''
-        time_str = m.get('time') or ''
-        if not time_str:
-            s = m.get('beginTime') or m.get('startTime') or ''
-            e = m.get('endTime') or m.get('timeEnd') or ''
-            if s and e:
-                time_str = f"{s}-{e}"
-        start, end = parse_time_range(time_str)
-        parsed.append({'days': parse_days(days), 'start': start, 'end': end})
-    return parsed
-
-
-def sections_conflict(sec_a, sec_b):
-    for ma in sec_a.get('_parsed_meetings', []):
-        for mb in sec_b.get('_parsed_meetings', []):
-            if not ma['days'] or not mb['days'] or ma['start'] is None or mb['start'] is None:
-                continue
-            if set(ma['days']) & set(mb['days']):
-                if not (ma['end'] <= mb['start'] or mb['end'] <= ma['start']):
-                    return True
-    return False
-
-
-def build_course_combos(entry):
-    combos = [[]]
-    for stype, secs in entry['types'].items():
-        new_combos = []
-        for combo in combos:
-            for sec in secs:
-                new_combos.append(combo + [sec])
-        combos = new_combos
-    return combos
-
-
-def generate_valid_schedules(selections):
-    course_entries = []
-    for sel in selections:
-        course = sel.get('course')
-        if not course:
-            continue
-        chosen = sel.get('selectedSections')
-        sections_by_type = {}
-        for stype, sec_list in course.get('sections', {}).items():
-            filtered = []
-            for sec in sec_list:
-                if not chosen or sec['code'] in chosen:
-                    sec['_parsed_meetings'] = parse_meetings_list(sec.get('meeting_info', []))
-                    filtered.append(sec)
-            if filtered:
-                sections_by_type[stype] = filtered
-        if sections_by_type:
-            course_entries.append({'name': course['course'], 'types': sections_by_type})
-
-    schedules = []
-
-    def backtrack(idx, current):
-        if idx == len(course_entries):
-            schedules.append([{ 'course': c['name'], 'section': s['code'] } for c,s in current])
-            return
-        entry = course_entries[idx]
-        for combo in build_course_combos(entry):
-            conflict = False
-            for sec in combo:
-                for _, existing in current:
-                    if sections_conflict(existing, sec):
-                        conflict = True
-                        break
-                if conflict:
-                    break
-            if not conflict:
-                backtrack(idx + 1, current + [(entry, sec) for sec in combo])
-
-    backtrack(0, [])
-    return schedules
-
-
 # --- Unit Tests for Parser ---
 class ParserTests(unittest.TestCase):
     def test_parse_courses_with_ampersand(self):
@@ -870,7 +739,6 @@ def stream_process():
                                         'instructors': ', '.join(sec.get('instructors', [])) if sec.get('instructors') else 'TBA',
                                         'status': sec.get('statusHistory', [])[-1] if sec.get('statusHistory') else 'Unknown',
                                         'meetings': meeting_strings,
-                                        'meeting_info': sec.get('meetings', []),
                                         'units': sec.get('units', 'N/A')
                                     }
                                     grouped_sections[section_data['type']].append(section_data)
@@ -918,7 +786,7 @@ def stream_process():
 
     # Create the response object with explicit content type and headers
     response = Response(
-        generate_updates(courses_to_process, year, quarter),
+        generate_updates(courses_to_process, year, quarter), 
         mimetype='text/event-stream',
         headers={
             'Cache-Control': 'no-cache, no-transform',
@@ -926,19 +794,9 @@ def stream_process():
             'Content-Type': 'text/event-stream'
         }
     )
-
+    
     app.logger.info("Returning streaming response with appropriate SSE headers.")
     return response
-
-
-@app.route('/generate_schedule', methods=['POST'])
-def generate_schedule_endpoint():
-    data = request.get_json()
-    selections = data.get('selections') if data else None
-    if not isinstance(selections, list):
-        return jsonify({'error': 'Invalid selections'}), 400
-    schedules = generate_valid_schedules(selections)
-    return jsonify({'schedules': schedules})
 
 
 # Run the Flask app
