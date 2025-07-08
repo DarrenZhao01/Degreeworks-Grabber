@@ -427,6 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             clearAlert();
             bodyElement.classList.remove('initial-view');
+            bodyElement.classList.add('search-view');
             
             const inputText = document.getElementById('inputText').value.trim();
             const year = yearInput.value.trim();
@@ -556,5 +557,59 @@ document.addEventListener('DOMContentLoaded', () => {
     if (collapseAllBtn) {
         collapseAllBtn.addEventListener('click', () => toggleAllCourses(false));
     } else { console.error("Collapse All button not found."); }
+
+    // Resize functionality
+    const resizeHandle = document.getElementById('resizeHandle');
+    let isResizing = false;
+
+    if (resizeHandle) {
+        resizeHandle.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            document.body.style.userSelect = 'none'; // Prevent text selection during resize
+            document.body.style.cursor = 'col-resize';
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizing) return;
+
+            const appContainer = document.querySelector('.app-container');
+            if (!appContainer) return;
+
+            const containerRect = appContainer.getBoundingClientRect();
+            const mouseX = e.clientX - containerRect.left;
+            const containerWidth = containerRect.width;
+            
+            // Calculate new percentages
+            const inputColumnPercent = (mouseX / containerWidth) * 100;
+            
+            // Set constraints (minimum 20%, maximum 80% for input column)
+            const minInputWidth = 20;
+            const maxInputWidth = 80;
+            
+            const constrainedInputPercent = Math.max(minInputWidth, Math.min(maxInputWidth, inputColumnPercent));
+            const outputPercent = 100 - constrainedInputPercent;
+            
+            // Update CSS custom properties
+            document.documentElement.style.setProperty('--input-column-width', `${constrainedInputPercent}%`);
+            document.documentElement.style.setProperty('--output-column-width', `${outputPercent}%`);
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+            }
+        });
+
+        // Handle case where mouse leaves the window while resizing
+        document.addEventListener('mouseleave', function() {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.userSelect = '';
+                document.body.style.cursor = '';
+            }
+        });
+    }
 
 });
