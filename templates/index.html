@@ -29,7 +29,36 @@
 
   gtag('config', 'G-50HK1LKTSN');
 </script>
-<body class="initial-view"> <div class="app-container">
+<body class="initial-view">
+    <!-- Cart Icon in Top Right -->
+    <div class="cart-icon-container position-fixed" id="cartIconContainer">
+        <button class="btn btn-primary cart-icon-btn" id="cartIconBtn" type="button">
+            <i class="fas fa-shopping-cart"></i>
+            <div class="cart-badge" id="cartBadge">0</div>
+        </button>
+    </div>
+
+    <!-- Cart Popup Overlay -->
+    <div class="cart-overlay d-none" id="cartOverlay">
+        <div class="cart-popup">
+            <div class="cart-popup-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-shopping-cart me-2"></i>Selected Courses
+                </h5>
+                <button type="button" class="btn-close" id="cartCloseBtn" aria-label="Close"></button>
+            </div>
+            <div class="cart-popup-body" id="cartPopupBody">
+                <p class="text-muted text-center mb-0">No courses selected yet</p>
+            </div>
+            <div class="cart-popup-footer">
+                <button class="btn btn-success w-100" id="buildScheduleFromCart" disabled>
+                    <i class="fas fa-magic me-2"></i>Build Smart Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
         <div class="input-column">
             <div class="input-elements-content">
                 <header class="text-center mb-4"> <i class="fas fa-graduation-cap fa-3x text-primary mb-3"></i>
@@ -38,7 +67,26 @@
                     <a href="/tutorial" class="lead text-muted">View Tutorial</a>
                 </header>
 
-                <div class="row justify-content-center w-100"> <div class="col-lg-10 col-xl-10"> <div class="card shadow-sm mb-2">
+                <!-- Mode Selector -->
+                <div class="row justify-content-center w-100 mb-3">
+                    <div class="col-lg-10 col-xl-10">
+                        <div class="btn-group w-100" role="group" aria-label="Mode selector">
+                            <input type="radio" class="btn-check" name="appMode" id="course-finder-mode" value="finder" checked>
+                            <label class="btn btn-outline-primary" for="course-finder-mode">
+                                <i class="fas fa-search me-2"></i>Course Finder
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="appMode" id="schedule-builder-mode" value="builder">
+                            <label class="btn btn-outline-success" for="schedule-builder-mode">
+                                <i class="fas fa-magic me-2"></i>Smart Schedule Builder
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row justify-content-center w-100"> <div class="col-lg-10 col-xl-10"> 
+                        <!-- Course Finder Form -->
+                        <div class="card shadow-sm mb-2" id="course-finder-card">
                             <div class="card-body">
                                 <form id="courseForm">
                                     <div class="mb-3">
@@ -73,6 +121,92 @@
 
                                     <button type="submit" class="btn btn-primary w-100">
                                         <i class="fas fa-search me-2"></i>Find Courses
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Schedule Builder Form -->
+                        <div class="card shadow-sm mb-2 d-none" id="schedule-builder-card">
+                            <div class="card-body">
+                                <form id="scheduleBuilderForm">
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-clipboard-list me-2"></i>Selected Courses
+                                        </label>
+                                        <div class="alert alert-info" id="scheduleBuilderCoursesList">
+                                            <p class="mb-0">
+                                                <i class="fas fa-info-circle me-2"></i>
+                                                Use the Course Finder to search and select courses, then return here to build your schedule.
+                                            </p>
+                                        </div>
+                                        <div class="form-text">Switch to Course Finder mode to search and select courses for your schedule</div>
+                                    </div>
+
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6">
+                                            <label for="year" class="form-label">
+                                                <i class="fas fa-calendar-alt me-2"></i>Year
+                                            </label>
+                                            <input type="number" class="form-control" id="scheduleYear" placeholder="YYYY" min="2000" max="2025" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="quarter" class="form-label">
+                                                <i class="fas fa-cloud-sun-rain me-2"></i>Quarter
+                                            </label>
+                                            <select class="form-select" id="scheduleQuarter" required aria-label="Select Quarter">
+                                                <option value="" disabled selected>Select Quarter</option>
+                                                <option value="Fall">Fall</option>
+                                                <option value="Winter">Winter</option>
+                                                <option value="Spring">Spring</option>
+                                                <option value="Summer1">Summer Session 1</option>
+                                                <option value="Summer10wk">Summer Session 10-wk</option>
+                                                <option value="Summer2">Summer Session 2</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-md-6">
+                                            <label for="earliestTime" class="form-label">
+                                                <i class="fas fa-sun me-2"></i>Earliest Class Time
+                                            </label>
+                                            <input type="time" class="form-control" id="earliestTime" value="08:00">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="latestTime" class="form-label">
+                                                <i class="fas fa-moon me-2"></i>Latest Class Time
+                                            </label>
+                                            <input type="time" class="form-control" id="latestTime" value="18:00">
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="scheduleStyle" class="form-label">
+                                            <i class="fas fa-palette me-2"></i>Schedule Style
+                                        </label>
+                                        <select class="form-select" id="scheduleStyle">
+                                            <option value="compact">Compact (fewer days on campus)</option>
+                                            <option value="balanced" selected>Balanced (spread across week)</option>
+                                            <option value="morning">Morning-heavy (early classes)</option>
+                                            <option value="afternoon">Afternoon-heavy (later classes)</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="maxSchedules" class="form-label">
+                                            <i class="fas fa-list-ol me-2"></i>Number of Schedules to Generate
+                                        </label>
+                                        <select class="form-select" id="maxSchedules">
+                                            <option value="3">3 schedules</option>
+                                            <option value="5" selected>5 schedules</option>
+                                            <option value="8">8 schedules</option>
+                                            <option value="10">10 schedules</option>
+                                        </select>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-success w-100">
+                                        <i class="fas fa-magic me-2"></i>Build Smart Schedule
                                     </button>
                                 </form>
                             </div>

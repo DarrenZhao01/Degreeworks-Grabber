@@ -542,3 +542,300 @@ body.search-view .output-column {
                 margin-top: 2px;
         }
 }
+
+/* Course Selection Styles */
+.selected-courses-cart {
+        margin-bottom: 1rem;
+        position: sticky;
+        top: 10px;
+        z-index: 100;
+}
+
+.selected-course-item {
+        transition: background-color 0.2s ease;
+}
+
+.selected-course-item:hover {
+        background-color: #e9ecef !important;
+}
+
+.select-course-btn {
+        transition: all 0.2s ease;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+}
+
+.select-course-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.course-actions {
+        opacity: 0.8;
+        transition: opacity 0.2s ease;
+}
+
+.course-card:hover .course-actions {
+        opacity: 1;
+}
+
+        .btn-xs {
+        padding: 0.125rem 0.25rem;
+        font-size: 0.6rem;
+        line-height: 1.2;
+}
+
+/* Cart Icon Styles */
+.cart-icon-container {
+        bottom: 20px;
+        right: 20px;
+        z-index: 1100;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.cart-icon-btn {
+        position: relative;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        border: none;
+        transition: all 0.3s ease;
+        background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+}
+
+.cart-icon-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.cart-icon-btn i {
+        font-size: 1.4rem;
+        color: white;
+}
+
+.cart-badge {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        background-color: #dc3545;
+        color: white;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        font-weight: 600;
+        min-width: 20px;
+        border: 2px solid white;
+        transition: all 0.3s ease;
+}
+
+/* Cart Popup Overlay Styles */
+.cart-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.6);
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-backdrop-filter: blur(2px);
+        backdrop-filter: blur(2px);
+        animation: fadeIn 0.3s ease;
+}
+
+.cart-overlay.d-none {
+        display: none !important;
+}
+
+.cart-popup {
+        background-color: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        max-width: 500px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        animation: slideIn 0.3s ease;
+        overflow: hidden;
+}
+
+.cart-popup-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background-color: #f8f9fa;
+}
+
+.cart-popup-header h5 {
+        color: #212529;
+        font-weight: 600;
+}
+
+.cart-popup-body {
+        padding: 1.5rem;
+        overflow-y: auto;
+        flex-grow: 1;
+        min-height: 200px;
+        max-height: 400px;
+}
+
+.cart-popup-footer {
+        padding: 1.5rem;
+        border-top: 1px solid #dee2e6;
+        background-color: #f8f9fa;
+}
+
+/* Selected course item in popup */
+.cart-course-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+        transition: all 0.2s ease;
+}
+
+.cart-course-item:hover {
+        background-color: #e9ecef;
+        border-color: #dee2e6;
+}
+
+.cart-course-item:last-child {
+        margin-bottom: 0;
+}
+
+.cart-course-name {
+        font-weight: 500;
+        color: #212529;
+        flex-grow: 1;
+}
+
+.cart-remove-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+}
+
+.cart-remove-btn:hover {
+        transform: scale(1.05);
+}
+
+/* Empty cart state */
+.cart-empty-state {
+        text-align: center;
+        color: #6c757d;
+        font-style: italic;
+        padding: 2rem 1rem;
+}
+
+.cart-empty-state i {
+        font-size: 3rem;
+        color: #dee2e6;
+        margin-bottom: 1rem;
+}
+
+/* Animations */
+@keyframes fadeIn {
+        from {
+                opacity: 0;
+        }
+        to {
+                opacity: 1;
+        }
+}
+
+@keyframes slideIn {
+        from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+        }
+        to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+        }
+}
+
+/* Schedule Builder Course List */
+#scheduleBuilderCoursesList {
+        transition: all 0.3s ease;
+}
+
+/* Responsive adjustments for course selection */
+@media (max-width: 768px) {
+        .course-actions {
+                opacity: 1; /* Always show on mobile */
+        }
+        
+        .select-course-btn {
+                font-size: 0.7rem;
+                padding: 0.2rem 0.4rem;
+        }
+        
+        .cart-icon-container {
+                bottom: 15px;
+                right: 15px;
+        }
+        
+        .cart-icon-btn {
+                width: 55px;
+                height: 55px;
+        }
+        
+        .cart-icon-btn i {
+                font-size: 1.3rem;
+        }
+        
+        .cart-badge {
+                width: 18px;
+                height: 18px;
+                font-size: 0.65rem;
+                top: -3px;
+                right: -3px;
+        }
+        
+        .cart-popup {
+                width: 95%;
+                max-height: 85vh;
+                margin: 1rem;
+        }
+        
+        .cart-popup-header,
+        .cart-popup-body,
+        .cart-popup-footer {
+                padding: 1rem;
+        }
+        
+        .cart-course-item {
+                padding: 0.5rem;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+        }
+        
+        .cart-remove-btn {
+                align-self: flex-end;
+        }
+}
+
+/* Ensure feedback link doesn't conflict with cart */
+.feedback-link {
+        z-index: 1050;
+        top: 15px;
+}

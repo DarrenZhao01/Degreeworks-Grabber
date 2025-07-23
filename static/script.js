@@ -36,6 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentReader = null;
     let currentYear = '';
     let currentQuarter = '';
+    
+    // Cache for search results to prevent loss when switching modes
+    let cachedSearchResults = null;
+    let cachedSearchParams = null;
+    
+    // Cache for schedule results to prevent loss when switching modes
+    let cachedScheduleResults = null;
 
     if (yearInput) {
         yearInput.value = new Date().getFullYear();
@@ -209,11 +216,21 @@ document.addEventListener('DOMContentLoaded', () => {
         cardHeader.id = headerId;
 
         cardHeader.innerHTML = `
-            <span class="course-title-container">
-                ${courseTitleText}
-                ${antAlmanacIconLink}
-            </span>
-            <i class="fas fa-chevron-down collapse-arrow"></i>
+            <div class="d-flex justify-content-between align-items-center w-100">
+                <span class="course-title-container">
+                    ${courseTitleText}
+                    ${antAlmanacIconLink}
+                </span>
+                <div class="course-actions d-flex align-items-center">
+                    <button class="btn btn-outline-success btn-sm me-2 select-course-btn" 
+                            data-course="${course.course || 'Unknown'}"
+                            onclick="event.stopPropagation(); toggleCourseSelection(this.getAttribute('data-course'), this)"
+                            title="Add to Schedule Builder">
+                        <i class="fas fa-plus me-1"></i>Select
+                    </button>
+                    <i class="fas fa-chevron-down collapse-arrow"></i>
+                </div>
+            </div>
         `;
         courseCard.appendChild(cardHeader);
 
@@ -301,9 +318,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return hasWaitlistedSections && !hasOpenSections;
     }
 
-    function displayFinalResultsAndAnimate(finalResults, year, quarter) {
+    function displayFinalResultsAndAnimate(finalResults, year, quarter, isRestoredFromCache = false) {
+        // Cache the search results and parameters (only if not already cached)
+        if (!isRestoredFromCache) {
+            cachedSearchResults = finalResults;
+            cachedSearchParams = { year, quarter };
+            // Clear schedule cache only when displaying NEW course results
+            cachedScheduleResults = null;
+        }
+        
         if (progressLogDisplay) progressLogDisplay.classList.add('d-none');
         if (resultsDisplay) resultsDisplay.classList.remove('d-none');
+        
+        // Show course finder tabs and hide any schedule results when displaying course results
+        const filterTabsContainer = resultsDisplay.querySelector('.filter-controls-container');
+        const tabContent = resultsDisplay.querySelector('#filterTabContent');
+        const existingScheduleContent = resultsDisplay.querySelector('.schedule-results');
+        if (filterTabsContainer) filterTabsContainer.style.display = '';
+        if (tabContent) tabContent.style.display = '';
+        if (existingScheduleContent) existingScheduleContent.remove();
 
         // Re-query elements if they weren't found during initial load
         if (!allCoursesPane || !availableCoursesPane || !waitlistedCoursesPane || !unavailableCoursesPane) {
@@ -407,6 +440,24 @@ document.addEventListener('DOMContentLoaded', () => {
              const tabInstance = bootstrap.Tab.getOrCreateInstance(availableTabElement);
              if (tabInstance) tabInstance.show();
         }
+        
+        // Restore selection state for cached results
+        restoreSelectionState();
+    }
+
+    // Function to restore the selection state of course buttons
+    function restoreSelectionState() {
+        if (!selectedCourses || selectedCourses.size === 0) return;
+        
+        // Update all select buttons to reflect current selection state
+        selectedCourses.forEach(courseName => {
+            const selectButtons = document.querySelectorAll(`[data-course="${courseName}"]`);
+            selectButtons.forEach(button => {
+                button.innerHTML = '<i class="fas fa-check me-1"></i>Selected';
+                button.className = 'btn btn-success btn-sm me-2 select-course-btn';
+                button.title = 'Remove from Schedule Builder';
+            });
+        });
     }
 
     function toggleAllCourses(expand) {
@@ -424,6 +475,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (courseForm) {
         courseForm.addEventListener('submit', async function(e) {
             e.preventDefault();
+            
+            // Clear cached results when starting a new search
+            cachedSearchResults = null;
+            cachedSearchParams = null;
+            cachedScheduleResults = null;
             
             clearAlert();
             bodyElement.classList.remove('initial-view');
@@ -610,6 +666,533 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.style.cursor = '';
             }
         });
+    }
+
+    // Mode switching functionality
+    const courseFinderMode = document.getElementById('course-finder-mode');
+    const scheduleBuilderMode = document.getElementById('schedule-builder-mode');
+    const courseFinderCard = document.getElementById('course-finder-card');
+    const scheduleBuilderCard = document.getElementById('schedule-builder-card');
+    const scheduleBuilderForm = document.getElementById('scheduleBuilderForm');
+
+    // Initialize schedule year field
+    const scheduleYearInput = document.getElementById('scheduleYear');
+    if (scheduleYearInput) {
+        scheduleYearInput.value = new Date().getFullYear();
+    }
+
+    // Handle mode switching
+    function switchMode() {
+        if (courseFinderMode && scheduleBuilderMode && courseFinderCard && scheduleBuilderCard) {
+            if (courseFinderMode.checked) {
+                courseFinderCard.classList.remove('d-none');
+                scheduleBuilderCard.classList.add('d-none');
+                // Update page title
+                document.querySelector('h1').textContent = 'DegreeWorks Course Finder';
+                document.querySelector('.lead').textContent = 'Find available sections for your required courses.';
+                
+                // Restore cached results if available
+                if (cachedSearchResults && cachedSearchParams) {
+                    // Show a brief message that results are being restored
+                    if (progressLogDisplay) {
+                        progressLogDisplay.innerHTML = `
+                            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                                <i class="fas fa-history me-2"></i>
+                                Restoring your previous search results...
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        progressLogDisplay.classList.remove('d-none');
+                    }
+                    
+                    // Restore results with a slight delay to show the message
+                    setTimeout(() => {
+                        // Update form fields and global variables to match cached search parameters
+                        if (yearInput) yearInput.value = cachedSearchParams.year;
+                        if (quarterSelect) quarterSelect.value = cachedSearchParams.quarter;
+                        currentYear = cachedSearchParams.year;
+                        currentQuarter = cachedSearchParams.quarter;
+                        
+                        displayFinalResultsAndAnimate(cachedSearchResults, cachedSearchParams.year, cachedSearchParams.quarter, true);
+                    }, 100);
+                } else {
+                    // Only hide results if no cached results exist
+                    if (resultsDisplay) {
+                        resultsDisplay.classList.add('d-none');
+                    }
+                }
+            } else if (scheduleBuilderMode.checked) {
+                courseFinderCard.classList.add('d-none');
+                scheduleBuilderCard.classList.remove('d-none');
+                // Update page title
+                document.querySelector('h1').textContent = 'Smart Schedule Builder';
+                document.querySelector('.lead').textContent = 'Build optimized schedules that fit your preferences.';
+                
+                // Restore cached schedule results if available
+                if (cachedScheduleResults) {
+                    // Show a brief message that schedule results are being restored
+                    if (progressLogDisplay) {
+                        progressLogDisplay.innerHTML = `
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="fas fa-history me-2"></i>
+                                Restoring your generated schedules...
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        progressLogDisplay.classList.remove('d-none');
+                    }
+                    
+                    // Restore schedule results with a slight delay to show the message
+                    setTimeout(() => {
+                        displayScheduleResults(cachedScheduleResults);
+                    }, 100);
+                } else {
+                    // Hide course finder results when in schedule builder mode and no cached schedules
+                    if (resultsDisplay) {
+                        resultsDisplay.classList.add('d-none');
+                    }
+                }
+            }
+            
+            // Always clear progress display when switching modes
+            if (progressLogDisplay) {
+                progressLogDisplay.innerHTML = '';
+            }
+        }
+    }
+
+    // Add event listeners for mode switching
+    if (courseFinderMode) {
+        courseFinderMode.addEventListener('change', switchMode);
+    }
+    if (scheduleBuilderMode) {
+        scheduleBuilderMode.addEventListener('change', switchMode);
+    }
+
+    // Course Selection Management
+    let selectedCourses = new Set();
+    const cartIconContainer = document.getElementById('cartIconContainer');
+    const cartIconBtn = document.getElementById('cartIconBtn');
+    const cartBadge = document.getElementById('cartBadge');
+    const cartOverlay = document.getElementById('cartOverlay');
+    const cartPopupBody = document.getElementById('cartPopupBody');
+    const cartCloseBtn = document.getElementById('cartCloseBtn');
+    const buildScheduleFromCart = document.getElementById('buildScheduleFromCart');
+    const scheduleBuilderCoursesList = document.getElementById('scheduleBuilderCoursesList');
+
+    // Function to toggle course selection
+    window.toggleCourseSelection = function(courseName, buttonElement) {
+        console.log('toggleCourseSelection called with courseName:', courseName, 'button:', buttonElement);
+        if (selectedCourses.has(courseName)) {
+            // Remove from selection
+            selectedCourses.delete(courseName);
+            buttonElement.innerHTML = '<i class="fas fa-plus me-1"></i>Select';
+            buttonElement.className = 'btn btn-outline-success btn-sm me-2 select-course-btn';
+            buttonElement.title = 'Add to Schedule Builder';
+        } else {
+            // Add to selection
+            selectedCourses.add(courseName);
+            buttonElement.innerHTML = '<i class="fas fa-check me-1"></i>Selected';
+            buttonElement.className = 'btn btn-success btn-sm me-2 select-course-btn';
+            buttonElement.title = 'Remove from Schedule Builder';
+        }
+        
+        updateSelectedCoursesDisplay();
+    };
+
+    // Function to remove course from selection (from cart)
+    window.removeCourseFromSelection = function(courseName) {
+        selectedCourses.delete(courseName);
+        
+        // Update all select buttons for this course
+        const selectButtons = document.querySelectorAll(`[data-course="${courseName}"]`);
+        selectButtons.forEach(button => {
+            button.innerHTML = '<i class="fas fa-plus me-1"></i>Select';
+            button.className = 'btn btn-outline-success btn-sm me-2 select-course-btn';
+            button.title = 'Add to Schedule Builder';
+        });
+        
+        updateSelectedCoursesDisplay();
+    };
+
+    // Function to update the selected courses display
+    function updateSelectedCoursesDisplay() {
+        console.log('updateSelectedCoursesDisplay called, selectedCourses:', Array.from(selectedCourses));
+        const count = selectedCourses.size;
+        
+        // Update cart badge
+        if (cartBadge) {
+            cartBadge.textContent = count;
+            console.log('Updated cart badge to:', count);
+        } else {
+            console.log('cartBadge element not found');
+        }
+        
+        // Always show cart icon and add/remove empty class for animation
+        if (cartIconContainer) {
+            cartIconContainer.classList.remove('d-none');
+            if (count === 0) {
+                cartIconContainer.classList.add('empty');
+            } else {
+                cartIconContainer.classList.remove('empty');
+            }
+            console.log('Cart icon is always visible, count:', count);
+        } else {
+            console.log('cartIconContainer element not found');
+        }
+        
+        // Update cart popup contents
+        if (cartPopupBody) {
+            if (count === 0) {
+                cartPopupBody.innerHTML = `
+                    <div class="cart-empty-state">
+                        <i class="fas fa-shopping-cart"></i>
+                        <p class="mb-0">No courses selected yet</p>
+                        <small class="text-muted">Use the "Select" buttons on courses to add them here</small>
+                    </div>
+                `;
+            } else {
+                const courseItems = Array.from(selectedCourses).map(course => `
+                    <div class="cart-course-item">
+                        <div class="cart-course-name">${course}</div>
+                        <button class="btn btn-outline-danger btn-sm cart-remove-btn" 
+                                onclick="removeCourseFromSelection('${course}')"
+                                title="Remove course">
+                            <i class="fas fa-times me-1"></i>Remove
+                        </button>
+                    </div>
+                `).join('');
+                cartPopupBody.innerHTML = courseItems;
+            }
+        }
+        
+        // Enable/disable build schedule button
+        if (buildScheduleFromCart) {
+            buildScheduleFromCart.disabled = count === 0;
+        }
+        
+        // Update schedule builder courses list
+        updateScheduleBuilderCoursesList();
+    }
+
+    // Function to update the schedule builder courses list
+    function updateScheduleBuilderCoursesList() {
+        if (!scheduleBuilderCoursesList) return;
+        
+        const count = selectedCourses.size;
+        
+        if (count === 0) {
+            scheduleBuilderCoursesList.innerHTML = `
+                <p class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Use the Course Finder to search and select courses, then return here to build your schedule.
+                </p>
+            `;
+            scheduleBuilderCoursesList.className = 'alert alert-info';
+        } else {
+            const courseList = Array.from(selectedCourses).join(', ');
+            scheduleBuilderCoursesList.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${count} course${count !== 1 ? 's' : ''} selected:</strong>
+                        <br><small>${courseList}</small>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" onclick="switchToCourseFinderMode()">
+                        <i class="fas fa-edit me-1"></i>Edit
+                    </button>
+                </div>
+            `;
+            scheduleBuilderCoursesList.className = 'alert alert-success';
+        }
+    }
+
+    // Initialize cart display after functions are defined
+    updateSelectedCoursesDisplay();
+
+    // Function to switch to course finder mode
+    window.switchToCourseFinderMode = function() {
+        if (courseFinderMode) {
+            courseFinderMode.checked = true;
+            switchMode();
+        }
+    };
+
+    // Cart popup event listeners
+    if (cartIconBtn) {
+        cartIconBtn.addEventListener('click', function() {
+            if (cartOverlay) {
+                cartOverlay.classList.remove('d-none');
+                // Prevent body scroll when popup is open
+                document.body.style.overflow = 'hidden';
+            }
+        });
+    }
+
+    if (cartCloseBtn) {
+        cartCloseBtn.addEventListener('click', function() {
+            closeCartPopup();
+        });
+    }
+
+    // Close popup when clicking outside
+    if (cartOverlay) {
+        cartOverlay.addEventListener('click', function(e) {
+            if (e.target === cartOverlay) {
+                closeCartPopup();
+            }
+        });
+    }
+
+    // Function to close cart popup
+    function closeCartPopup() {
+        if (cartOverlay) {
+            cartOverlay.classList.add('d-none');
+            // Restore body scroll
+            document.body.style.overflow = '';
+        }
+    }
+
+    // Close popup with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && cartOverlay && !cartOverlay.classList.contains('d-none')) {
+            closeCartPopup();
+        }
+    });
+
+    // Handle build schedule from cart
+    if (buildScheduleFromCart) {
+        buildScheduleFromCart.addEventListener('click', function() {
+            if (selectedCourses.size === 0) {
+                showAlert('Please select at least one course first.', 'warning');
+                return;
+            }
+            
+            // Close cart popup first
+            closeCartPopup();
+            
+            // Switch to schedule builder mode
+            if (scheduleBuilderMode) {
+                scheduleBuilderMode.checked = true;
+                switchMode();
+            }
+            
+            // Scroll to schedule builder form
+            setTimeout(() => {
+                const scheduleBuilderCard = document.getElementById('schedule-builder-card');
+                if (scheduleBuilderCard) {
+                    scheduleBuilderCard.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 100);
+        });
+    }
+
+    // Handle schedule builder form submission
+    if (scheduleBuilderForm) {
+        scheduleBuilderForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Keep cached course finder results - don't clear them when building schedules
+            // Users should be able to return to their search results after building schedules
+            
+            // Clear previous results
+            if (resultsDisplay) {
+                resultsDisplay.classList.add('d-none');
+            }
+            if (progressLogDisplay) {
+                progressLogDisplay.innerHTML = '';
+            }
+
+            // Show progress log
+            if (progressLogDisplay) {
+                progressLogDisplay.style.display = 'block';
+            }
+
+            // Prepare form data using selected courses
+            const selectedCoursesArray = Array.from(selectedCourses);
+            const formData = {
+                required_courses: selectedCoursesArray.join(', '),
+                preferred_courses: '', // For now, all selected courses are required
+                year: document.getElementById('scheduleYear').value,
+                quarter: document.getElementById('scheduleQuarter').value,
+                earliest_time: document.getElementById('earliestTime').value,
+                latest_time: document.getElementById('latestTime').value,
+                schedule_style: document.getElementById('scheduleStyle').value,
+                max_schedules: document.getElementById('maxSchedules').value
+            };
+
+            // Basic validation
+            if (selectedCoursesArray.length === 0) {
+                showAlert('Please select at least one course using the Course Finder first.', 'warning');
+                return;
+            }
+
+            if (!formData.year || !formData.quarter) {
+                showAlert('Please select both year and quarter.', 'warning');
+                return;
+            }
+
+            // Show loading message
+            if (progressLogDisplay) {
+                progressLogDisplay.innerHTML = `
+                    <div class="progress-item">
+                        <div class="spinner-border spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span>Building your smart schedule...</span>
+                    </div>
+                `;
+            }
+
+            // Make API call to build schedule
+            fetch('/build_schedule', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayScheduleResults(data.schedules);
+                } else {
+                    showAlert(data.error || 'Failed to build schedule. Please try again.', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('An error occurred while building your schedule. Please try again.', 'danger');
+            })
+            .finally(() => {
+                // Hide loading spinner
+                if (progressLogDisplay) {
+                    progressLogDisplay.innerHTML = '';
+                }
+            });
+        });
+    }
+
+    // Function to display schedule results
+    function displayScheduleResults(schedules) {
+        if (!schedules || schedules.length === 0) {
+            showAlert('No valid schedules could be generated with your constraints. Try relaxing some preferences.', 'info');
+            return;
+        }
+
+        // Cache the schedule results
+        cachedScheduleResults = schedules;
+
+        // Show results display
+        if (resultsDisplay) {
+            resultsDisplay.classList.remove('d-none');
+            
+            // Clear existing schedule content but preserve course finder content
+            const existingContent = resultsDisplay.querySelector('.schedule-results');
+            if (existingContent) {
+                existingContent.remove();
+            }
+            
+            // Hide course finder tabs when showing schedule results
+            const filterTabsContainer = resultsDisplay.querySelector('.filter-controls-container');
+            const tabContent = resultsDisplay.querySelector('#filterTabContent');
+            if (filterTabsContainer) filterTabsContainer.style.display = 'none';
+            if (tabContent) tabContent.style.display = 'none';
+
+            // Create schedule results container
+            const scheduleContainer = document.createElement('div');
+            scheduleContainer.className = 'schedule-results';
+            
+            // Add header
+            const header = document.createElement('div');
+            header.className = 'text-center mb-4';
+            header.innerHTML = `
+                <h3><i class="fas fa-calendar-alt me-2"></i>Generated Schedules</h3>
+                <p class="text-muted">Found ${schedules.length} optimal schedule${schedules.length !== 1 ? 's' : ''} for you!</p>
+            `;
+            scheduleContainer.appendChild(header);
+
+            // Display each schedule
+            schedules.forEach((schedule, index) => {
+                const scheduleCard = createScheduleCard(schedule, index + 1);
+                scheduleContainer.appendChild(scheduleCard);
+            });
+
+            // Insert the schedule results
+            const firstChild = resultsDisplay.firstElementChild;
+            if (firstChild) {
+                resultsDisplay.insertBefore(scheduleContainer, firstChild);
+            } else {
+                resultsDisplay.appendChild(scheduleContainer);
+            }
+        }
+    }
+
+    // Function to create a schedule card
+    function createScheduleCard(schedule, index) {
+        const card = document.createElement('div');
+        card.className = 'card mb-3';
+        
+        const scoreColor = schedule.score >= 80 ? 'success' : schedule.score >= 60 ? 'warning' : 'secondary';
+        
+        card.innerHTML = `
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-trophy me-2"></i>Schedule Option ${index}
+                    <span class="badge bg-${scoreColor} ms-2">Score: ${Math.round(schedule.score || 0)}</span>
+                </h5>
+                <div class="schedule-stats">
+                    <small class="text-muted">
+                        ${schedule.total_units || 0} units • 
+                        ${schedule.days_on_campus || 0} days • 
+                        ${schedule.earliest_class || 'N/A'} - ${schedule.latest_class || 'N/A'}
+                    </small>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="schedule-sections">
+                            ${schedule.sections.map(section => `
+                                <div class="section-item mb-2 p-2 border rounded">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <strong>${section.course || 'N/A'}</strong>
+                                            <span class="badge bg-secondary ms-2">${section.type || 'N/A'}</span>
+                                            <small class="text-muted ms-2">(${section.code || 'N/A'})</small>
+                                        </div>
+                                        <span class="badge bg-${section.status === 'OPEN' ? 'success' : section.status === 'Waitl' ? 'warning' : 'danger'}">
+                                            ${section.status || 'Unknown'}
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        <div><i class="fas fa-user me-1"></i>${section.instructor || 'TBA'}</div>
+                                        <div><i class="fas fa-clock me-1"></i>${section.meetings && section.meetings.length > 0 ? section.meetings.map(m => m.formatted || 'TBA').join(', ') : 'TBA'}</div>
+                                        <div><i class="fas fa-weight me-1"></i>${section.units || 0} units</div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="schedule-summary">
+                            <h6><i class="fas fa-info-circle me-2"></i>Summary</h6>
+                            <p class="small text-muted">${schedule.summary || 'Schedule summary'}</p>
+                            
+                            <div class="mt-3">
+                                <button class="btn btn-outline-primary btn-sm w-100 mb-2">
+                                    <i class="fas fa-calendar me-2"></i>View Calendar
+                                </button>
+                                <button class="btn btn-outline-success btn-sm w-100">
+                                    <i class="fas fa-heart me-2"></i>Save Schedule
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        return card;
     }
 
 });

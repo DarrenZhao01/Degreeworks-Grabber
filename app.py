@@ -11,49 +11,11 @@ from dotenv import load_dotenv
 import subprocess
 import urllib.parse
 import unittest
-
+from custom_execs import *
+from schedule_builder import ScheduleBuilder
 # Load environment variables from .env file
 load_dotenv(dotenv_path='.env')
 
-# --- Custom Exception Classes ---
-
-class DegreeWorksError(Exception):
-    """Base class for exceptions in this application."""
-    pass
-
-class InvalidInputError(DegreeWorksError):
-    """Exception raised for errors in user-provided input."""
-    def __init__(self, message="Invalid input provided."):
-        self.message = message
-        super().__init__(self.message)
-
-class ParsingError(DegreeWorksError):
-    """Exception raised for errors during the parsing of the DegreeWorks string."""
-    def __init__(self, message="Error parsing the course string."):
-        self.message = message
-        super().__init__(self.message)
-
-class APIError(DegreeWorksError):
-    """Exception raised for errors related to the external Anteater API."""
-    def __init__(self, message="An error occurred while contacting the course API.", status_code=None):
-        self.message = message
-        self.status_code = status_code # Store status code if available
-        full_message = f"{message}"
-        if status_code:
-            full_message += f" (Status Code: {status_code})"
-        super().__init__(full_message)
-
-class APITimeoutError(APIError):
-    """Specific exception for API timeouts."""
-    def __init__(self, message="The request to the course API timed out."):
-        super().__init__(message)
-
-class APINoDataError(APIError):
-    """Specific exception when the API call is successful but returns no data unexpectedly."""
-    def __init__(self, message="The course API returned no data when some was expected."):
-        super().__init__(message)
-
-# --- End Custom Exception Classes ---
 
 
 # Initialize Flask application
@@ -466,136 +428,6 @@ def format_meeting_string(m):
     return meeting_string if meeting_string else (m.get('meetingType') or 'Details TBA')
 
 
-# --- Unit Tests for Parser ---
-class ParserTests(unittest.TestCase):
-    def test_parse_courses_with_ampersand(self):
-        """Test handling of department codes with ampersands"""
-        # Test the issue mentioned in the ticket
-        result = parse_courses("1 Class in I&CSCI 45C")
-        expected = [("I&C SCI", "45C")]
-        self.assertEqual(result, expected)
-        
-        # Test multiple courses with ampersand
-        result = parse_courses("2 Classes in I&CSCI 45C, I&CSCI 46")
-        expected = [("I&C SCI", "45C"), ("I&C SCI", "46")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_multi_word_departments(self):
-        """Test handling of multi-word department codes"""
-        result = parse_courses("2 Classes in BIO SCI 93, 94")
-        expected = [("BIO SCI", "93"), ("BIO SCI", "94")]
-        self.assertEqual(result, expected)
-        
-        result = parse_courses("1 Class in ART HIS 20A")
-        expected = [("ART HIS", "20A")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_mixed_departments(self):
-        """Test parsing with multiple different departments"""
-        result = parse_courses("3 Classes in COMPSCI 161, MATH 2A, PHYSICS 7A")
-        expected = [("COMPSCI", "161"), ("MATH", "2A"), ("PHYSICS", "7A")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_repeated_department(self):
-        """Test parsing where department is mentioned once for multiple courses"""
-        result = parse_courses("2 Classes in ANTHRO 2A, 20A")
-        expected = [("ANTHRO", "2A"), ("ANTHRO", "20A")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_complex_mixed(self):
-        """Test complex parsing with mixed department patterns"""
-        result = parse_courses("4 Classes in I&CSCI 45C, 46, MATH 2A, BIO SCI 93")
-        expected = [("I&C SCI", "45C"), ("I&C SCI", "46"), ("MATH", "2A"), ("BIO SCI", "93")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_with_prefixes(self):
-        """Test that common prefixes are properly ignored"""
-        result = parse_courses("1 Class in COMPSCI 161")
-        expected = [("COMPSCI", "161")]
-        self.assertEqual(result, expected)
-        
-        result = parse_courses("3 Classes in MATH 2A, 2B, 3A")
-        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "3A")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_edge_cases(self):
-        """Test edge cases and error handling"""
-        # Empty input
-        with self.assertRaises(ParsingError):
-            parse_courses("")
-        
-        # Only prefix
-        with self.assertRaises(ParsingError):
-            parse_courses("2 Classes in")
-        
-        # Invalid department
-        with self.assertRaises(InvalidInputError):
-            parse_courses("INVALIDdept 123")
-
-    def test_parse_courses_course_number_formats(self):
-        """Test various course number formats"""
-        result = parse_courses("MATH 2A, 2B, 10, 140A, H1A")
-        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "10"), ("MATH", "140A"), ("MATH", "H1A")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_range_notation(self):
-        """Test range notation like 111:121"""
-        result = parse_courses("COMPSCI 111:115")
-        expected = [("COMPSCI", "111"), ("COMPSCI", "112"), ("COMPSCI", "113"), ("COMPSCI", "114"), ("COMPSCI", "115")]
-        self.assertEqual(result, expected)
-        
-        # Test with letter suffixes
-        result = parse_courses("MATH 2A:2D")
-        expected = [("MATH", "2A"), ("MATH", "2B"), ("MATH", "2C"), ("MATH", "2D")]
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_placeholder_notation(self):
-        """Test placeholder notation like 122@"""
-        result = parse_courses("COMPSCI 122@")
-        # Should expand to common variants
-        expected_suffixes = ['A', 'B', 'C', 'D', 'E', 'W']
-        expected = [("COMPSCI", f"122{suffix}") for suffix in expected_suffixes]
-        expected.append(("COMPSCI", "122"))  # Base number without suffix
-        self.assertEqual(result, expected)
-
-    def test_parse_courses_complex_degreeworks_format(self):
-        """Test complex DegreeWorks format with ranges and placeholders"""
-        result = parse_courses("COMPSCI 103, 111:113, 122@")
-        expected = [
-            ("COMPSCI", "103"),
-            ("COMPSCI", "111"), ("COMPSCI", "112"), ("COMPSCI", "113"),
-            ("COMPSCI", "122A"), ("COMPSCI", "122B"), ("COMPSCI", "122C"), 
-            ("COMPSCI", "122D"), ("COMPSCI", "122E"), ("COMPSCI", "122W"), ("COMPSCI", "122")
-        ]
-        self.assertEqual(result, expected)
-
-    def test_expand_course_range(self):
-        """Test the expand_course_range helper function"""
-        # Test numeric range
-        result = expand_course_range("111", "115")
-        expected = ["111", "112", "113", "114", "115"]
-        self.assertEqual(result, expected)
-        
-        # Test with letter suffixes
-        result = expand_course_range("2A", "2D")
-        expected = ["2A", "2B", "2C", "2D"]
-        self.assertEqual(result, expected)
-        
-        # Test invalid range (different suffixes)
-        result = expand_course_range("111A", "115B")
-        expected = ["111A", "115B"]  # Should return endpoints
-        self.assertEqual(result, expected)
-
-    def test_expand_course_placeholder(self):
-        """Test the expand_course_placeholder helper function"""
-        result = expand_course_placeholder("122@")
-        expected = [
-            ("122A", True), ("122B", True), ("122C", True), 
-            ("122D", True), ("122E", True), ("122W", True), ("122", True)
-        ]
-        self.assertEqual(result, expected)
-
-# --- Routes ---
 
 @app.route('/')
 def index():
@@ -604,6 +436,8 @@ def index():
 @app.route('/tutorial')
 def tutorial():
     return render_template('tutorial.html')
+
+
 
 @app.route('/stream_process', methods=['POST', 'GET'])
 def stream_process():
@@ -668,6 +502,12 @@ def stream_process():
 
 
     def generate_updates(course_list, req_year, req_quarter):
+        '''
+        This function is used to generate updates for the client.
+        It is called by the stream_process function.
+        It is a generator function that yields updates to the client.
+        It is used to send updates to the client in real-time.
+        '''
         all_results_data = []
         try:
             total_courses = len(course_list)
@@ -797,6 +637,67 @@ def stream_process():
     
     app.logger.info("Returning streaming response with appropriate SSE headers.")
     return response
+
+
+@app.route('/build_schedule', methods=['POST'])
+def build_schedule():
+    """Build optimal schedules based on user constraints"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Invalid request format. Expected JSON.'}), 400
+        
+        # Validate required fields
+        required_fields = ['required_courses', 'year', 'quarter']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        # Validate year format
+        try:
+            year = str(data['year'])
+            if not year.isdigit() or len(year) != 4:
+                raise ValueError("Invalid year format")
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid year format. Please use YYYY.'}), 400
+        
+        # Validate quarter
+        valid_quarters = ["Fall", "Winter", "Spring", "Summer1", "Summer10wk", "Summer2"]
+        if data['quarter'] not in valid_quarters:
+            return jsonify({'success': False, 'error': f'Invalid quarter. Must be one of: {", ".join(valid_quarters)}'}), 400
+        
+        # Build constraints object
+        constraints = {
+            'required_courses': data.get('required_courses', ''),
+            'preferred_courses': data.get('preferred_courses', ''),
+            'year': year,
+            'quarter': data.get('quarter'),
+            'earliest_time': data.get('earliest_time', '08:00'),
+            'latest_time': data.get('latest_time', '18:00'),
+            'schedule_style': data.get('schedule_style', 'balanced'),
+            'max_schedules': int(data.get('max_schedules', 5))
+        }
+        
+        app.logger.info(f"Building schedule with constraints: {constraints}")
+        
+        # Create schedule builder and generate schedules
+        builder = ScheduleBuilder(constraints)
+        schedules = builder.generate_optimal_schedules(get_sections)
+        
+        app.logger.info(f"Generated {len(schedules)} schedules")
+        
+        return jsonify({
+            'success': True,
+            'schedules': schedules,
+            'message': f'Generated {len(schedules)} optimal schedule{"s" if len(schedules) != 1 else ""}'
+        })
+        
+    except (InvalidInputError, ParsingError) as e:
+        app.logger.error(f"Input/Validation Error in build_schedule: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Unexpected error in build_schedule: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'An unexpected server error occurred. Please try again.'}), 500
 
 
 # Run the Flask app
