@@ -917,6 +917,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Make toggleScheduleView available globally
+    window.toggleScheduleView = function(scheduleIndex, viewType) {
+        const listView = document.getElementById(`schedule-list-${scheduleIndex}`);
+        const calendarView = document.getElementById(`calendar-${scheduleIndex}`);
+        const listBtn = document.querySelector(`[data-schedule="${scheduleIndex}"][data-view="list"]`);
+        const calendarBtn = document.querySelector(`[data-schedule="${scheduleIndex}"][data-view="calendar"]`);
+
+        if (viewType === 'calendar') {
+            if (listView) listView.style.display = 'none';
+            if (calendarView) calendarView.style.display = 'block';
+            if (listBtn) listBtn.classList.remove('active');
+            if (calendarBtn) calendarBtn.classList.add('active');
+        } else {
+            if (listView) listView.style.display = 'block';
+            if (calendarView) calendarView.style.display = 'none';
+            if (listBtn) listBtn.classList.add('active');
+            if (calendarBtn) calendarBtn.classList.remove('active');
+        }
+    };
+
     // Cart popup event listeners
     if (cartIconBtn) {
         cartIconBtn.addEventListener('click', function() {
@@ -1127,6 +1147,288 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Course color mapping for calendar
+    const courseColors = {};
+    let colorIndex = 0;
+
+    function getCourseColor(courseName) {
+        if (!courseColors[courseName]) {
+            courseColors[courseName] = `course-color-${(colorIndex % 10) + 1}`;
+            colorIndex++;
+        }
+        return courseColors[courseName];
+    }
+
+    // Function to parse time string to minutes
+    function parseTimeToMinutes(timeStr) {
+        if (!timeStr) return 0;
+        
+        try {
+            // Handle various time formats
+            let cleanTime = timeStr.trim().replace(/\s+/g, '');
+            
+            // Handle AM/PM format
+            if (cleanTime.match(/\d+:?\d*[ap]m?$/i)) {
+                let match = cleanTime.match(/(\d+):?(\d*)([ap])m?$/i);
+                if (match) {
+                    let hours = parseInt(match[1]);
+                    let minutes = match[2] ? parseInt(match[2]) : 0;
+                    let period = match[3].toLowerCase();
+                    
+                    if (period === 'p' && hours !== 12) hours += 12;
+                    if (period === 'a' && hours === 12) hours = 0;
+                    
+                    return hours * 60 + minutes;
+                }
+            }
+            
+            // Handle 24-hour format
+            if (cleanTime.match(/^\d{1,2}:?\d{2}$/)) {
+                let parts = cleanTime.split(':');
+                if (parts.length === 2) {
+                    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                }
+            }
+            
+            return 0;
+        } catch (e) {
+            console.warn('Error parsing time:', timeStr, e);
+            return 0;
+        }
+    }
+
+    // Function to format minutes to time string  
+    function formatMinutesToTime(minutes) {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+        return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+    }
+
+    // Function to get day abbreviation
+    function getDayAbbrev(day) {
+        const dayMap = {
+            'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
+            'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun'
+        };
+        return dayMap[day] || day;
+    }
+
+    // Function to create calendar view
+    function createCalendarView(schedule, scheduleIndex) {
+        const calendarContainer = document.createElement('div');
+        calendarContainer.className = 'calendar-container';
+        calendarContainer.id = `calendar-${scheduleIndex}`;
+        calendarContainer.style.display = 'none'; // Hidden by default
+
+        // Create calendar header
+        const header = document.createElement('div');
+        header.className = 'calendar-header';
+        header.innerHTML = `Weekly Schedule - Option ${scheduleIndex}`;
+        calendarContainer.appendChild(header);
+
+        // Create calendar grid
+        const grid = document.createElement('div');
+        grid.className = 'calendar-grid';
+
+        // Time slots (7 AM to 9 PM)
+        const startHour = 7;
+        const endHour = 21;
+        
+        // Days of week
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        
+        // Add time header (empty corner)
+        const timeHeader = document.createElement('div');
+        timeHeader.className = 'calendar-time-header';
+        grid.appendChild(timeHeader);
+        
+        // Add day headers
+        days.forEach(day => {
+            const dayHeader = document.createElement('div');
+            dayHeader.className = 'calendar-day-header';
+            dayHeader.textContent = getDayAbbrev(day);
+            grid.appendChild(dayHeader);
+        });
+
+        // Process schedule events
+        const events = [];
+        const courseColorMap = {};
+        let currentColorIndex = 0;
+
+        schedule.sections.forEach(section => {
+            const courseName = section.course || 'Unknown';
+            if (!courseColorMap[courseName]) {
+                courseColorMap[courseName] = `course-color-${(currentColorIndex % 10) + 1}`;
+                currentColorIndex++;
+            }
+
+            if (section.meetings && section.meetings.length > 0) {
+                section.meetings.forEach(meeting => {
+                    if (meeting.days && meeting.start_time && meeting.end_time) {
+                        meeting.days.forEach(day => {
+                            const startMinutes = parseTimeToMinutes(meeting.start_time);
+                            const endMinutes = parseTimeToMinutes(meeting.end_time);
+                            
+                            if (startMinutes >= startHour * 60 && endMinutes <= endHour * 60) {
+                                events.push({
+                                    day: day,
+                                    startMinutes: startMinutes,
+                                    endMinutes: endMinutes,
+                                    title: `${courseName} ${section.type}`,
+                                    details: `${section.code} • ${section.instructor}`,
+                                    location: meeting.building && meeting.room ? `${meeting.building} ${meeting.room}` : '',
+                                    color: courseColorMap[courseName],
+                                    section: section
+                                });
+                            }
+                        });
+                    }
+                });
+            }
+        });
+
+        // Create time slots and cells
+        for (let hour = startHour; hour < endHour; hour++) {
+            // Time slot label
+            const timeSlot = document.createElement('div');
+            timeSlot.className = 'calendar-time-slot';
+            timeSlot.textContent = formatMinutesToTime(hour * 60);
+            grid.appendChild(timeSlot);
+
+            // Day cells for this hour
+            days.forEach((day, dayIndex) => {
+                const cell = document.createElement('div');
+                cell.className = 'calendar-cell';
+                cell.dataset.day = day;
+                cell.dataset.hour = hour;
+
+                // Find events for this day and hour
+                const dayEvents = events.filter(event => 
+                    event.day === day && 
+                    event.startMinutes < (hour + 1) * 60 && 
+                    event.endMinutes > hour * 60
+                );
+
+                dayEvents.forEach(event => {
+                    // Only create event element if this is the starting hour
+                    if (Math.floor(event.startMinutes / 60) === hour) {
+                        const eventElement = document.createElement('div');
+                        eventElement.className = `calendar-event ${event.color}`;
+                        
+                        // Calculate position and height
+                        const startOffset = ((event.startMinutes % 60) / 60) * 100;
+                        const duration = event.endMinutes - event.startMinutes;
+                        const heightPercent = (duration / 60) * 100;
+                        
+                        eventElement.style.top = `${startOffset}%`;
+                        eventElement.style.height = `${Math.min(heightPercent, 100 - startOffset)}%`;
+                        
+                        eventElement.innerHTML = `
+                            <div class="calendar-event-title">${event.title}</div>
+                            <div class="calendar-event-details">${event.details}</div>
+                        `;
+
+                        // Add tooltip functionality
+                        eventElement.addEventListener('mouseenter', function(e) {
+                            showEventTooltip(e, event);
+                        });
+                        
+                        eventElement.addEventListener('mouseleave', function() {
+                            hideEventTooltip();
+                        });
+
+                        cell.appendChild(eventElement);
+                    }
+                });
+
+                grid.appendChild(cell);
+            });
+        }
+
+        calendarContainer.appendChild(grid);
+
+        // Add legend
+        if (Object.keys(courseColorMap).length > 0) {
+            const legend = document.createElement('div');
+            legend.className = 'calendar-legend';
+            
+            const legendTitle = document.createElement('div');
+            legendTitle.className = 'calendar-legend-title';
+            legendTitle.textContent = 'Course Colors';
+            legend.appendChild(legendTitle);
+            
+            const legendItems = document.createElement('div');
+            legendItems.className = 'calendar-legend-items';
+            
+            Object.entries(courseColorMap).forEach(([courseName, colorClass]) => {
+                const item = document.createElement('div');
+                item.className = 'calendar-legend-item';
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = `calendar-legend-color ${colorClass}`;
+                
+                item.appendChild(colorBox);
+                item.appendChild(document.createTextNode(courseName));
+                legendItems.appendChild(item);
+            });
+            
+            legend.appendChild(legendItems);
+            calendarContainer.appendChild(legend);
+        }
+
+        return calendarContainer;
+    }
+
+    // Event tooltip functions
+    let currentTooltip = null;
+
+    function showEventTooltip(e, event) {
+        hideEventTooltip(); // Remove any existing tooltip
+        
+        const tooltip = document.createElement('div');
+        tooltip.className = 'calendar-event-tooltip show';
+        
+        const timeStr = `${formatMinutesToTime(event.startMinutes)} - ${formatMinutesToTime(event.endMinutes)}`;
+        tooltip.innerHTML = `
+            <strong>${event.title}</strong><br>
+            ${timeStr}<br>
+            ${event.details}
+            ${event.location ? `<br>${event.location}` : ''}
+        `;
+        
+        document.body.appendChild(tooltip);
+        
+        // Position tooltip
+        const rect = e.target.getBoundingClientRect();
+        tooltip.style.left = `${rect.left + rect.width / 2}px`;
+        tooltip.style.top = `${rect.top - tooltip.offsetHeight - 5}px`;
+        
+        // Adjust if tooltip goes off screen
+        const tooltipRect = tooltip.getBoundingClientRect();
+        if (tooltipRect.right > window.innerWidth) {
+            tooltip.style.left = `${window.innerWidth - tooltipRect.width - 10}px`;
+        }
+        if (tooltipRect.left < 0) {
+            tooltip.style.left = '10px';
+        }
+        if (tooltipRect.top < 0) {
+            tooltip.style.top = `${rect.bottom + 5}px`;
+        }
+        
+        currentTooltip = tooltip;
+    }
+
+    function hideEventTooltip() {
+        if (currentTooltip) {
+            currentTooltip.remove();
+            currentTooltip = null;
+        }
+    }
+
+
+
     // Function to create a schedule card
     function createScheduleCard(schedule, index) {
         const card = document.createElement('div');
@@ -1134,7 +1436,28 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const scoreColor = schedule.score >= 80 ? 'success' : schedule.score >= 60 ? 'warning' : 'secondary';
         
-        card.innerHTML = `
+        // Create view toggle controls
+        const viewControls = document.createElement('div');
+        viewControls.className = 'schedule-view-controls';
+        viewControls.innerHTML = `
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-outline-primary view-toggle-btn active" 
+                        data-schedule="${index}" data-view="list"
+                        onclick="toggleScheduleView(${index}, 'list')">
+                    <i class="fas fa-list me-1"></i>List View
+                </button>
+                <button type="button" class="btn btn-outline-primary view-toggle-btn" 
+                        data-schedule="${index}" data-view="calendar"
+                        onclick="toggleScheduleView(${index}, 'calendar')">
+                    <i class="fas fa-calendar me-1"></i>Calendar View
+                </button>
+            </div>
+        `;
+
+        // Create list view (original content)
+        const listView = document.createElement('div');
+        listView.id = `schedule-list-${index}`;
+        listView.innerHTML = `
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
                     <i class="fas fa-trophy me-2"></i>Schedule Option ${index}
@@ -1179,9 +1502,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="small text-muted">${schedule.summary || 'Schedule summary'}</p>
                             
                             <div class="mt-3">
-                                <button class="btn btn-outline-primary btn-sm w-100 mb-2">
-                                    <i class="fas fa-calendar me-2"></i>View Calendar
-                                </button>
                                 <button class="btn btn-outline-success btn-sm w-100">
                                     <i class="fas fa-heart me-2"></i>Save Schedule
                                 </button>
@@ -1191,6 +1511,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>
         `;
+
+        // Create calendar view
+        const calendarView = createCalendarView(schedule, index);
+
+        // Assemble the card
+        card.appendChild(viewControls);
+        card.appendChild(listView);
+        card.appendChild(calendarView);
         
         return card;
     }
