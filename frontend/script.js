@@ -2,7 +2,10 @@
 // IMPORTANT: In a real-world app, this would be injected via environment variables
 // during a build process (e.g., using Webpack, Vite, Create React App, etc.)
 // For local development, 'http://localhost:5000' is fine.
-const BACKEND_API_BASE_URL = 'http://127.0.0.1:5000';
+// For production (Vercel), use relative URLs to api endpoints
+const BACKEND_API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? 'http://127.0.0.1:5000' 
+    : '/api';
 
 document.addEventListener('DOMContentLoaded', () => {
 
