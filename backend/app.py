@@ -1,5 +1,6 @@
 # app.py
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, request, jsonify, Response
+from flask_cors import CORS
 import requests
 import re
 import json
@@ -20,6 +21,7 @@ load_dotenv(dotenv_path='.env')
 
 # Initialize Flask application
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Base URL for the Anteater API
 BASE_URL = "https://anteaterapi.com/v2/rest/enrollmentHistory"
@@ -429,13 +431,7 @@ def format_meeting_string(m):
 
 
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/tutorial')
-def tutorial():
-    return render_template('tutorial.html')
+# Template rendering routes removed - frontend now serves static files
 
 
 
@@ -713,4 +709,4 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--test':
         unittest.main(argv=['first-arg-is-ignored'])
     else:
-        app.run(debug=False, threaded=True)
+        app.run(debug=False, threaded=True, port=5000)

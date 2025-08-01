@@ -1,7 +1,19 @@
 import requests
 import time
-
+import os
+from dotenv import load_dotenv
 import re
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path='../.env')
+
+# Get API key from environment variables
+API_KEY = os.environ.get('ANTEATER_API_SECRET_KEY')
+
+if not API_KEY:
+    print("ERROR: ANTEATER_API_SECRET_KEY is not set in environment. Please check your .env file.")
+    print("Create a .env file in the root directory with: ANTEATER_API_SECRET_KEY=your_api_key_here")
+    exit(1)
 
 def parse_courses(input_text):
     """
@@ -41,9 +53,12 @@ def get_sections(dept, num):
         "department": dept,
         "courseNumber": num
     }
-    r = requests.get(BASE_URL, params=params)
+    headers = {
+        "Authorization": f"Bearer {API_KEY}"
+    }
+    r = requests.get(BASE_URL, params=params, headers=headers, timeout=25)
     if r.status_code != 200:
-        print(f"Error fetching {dept} {num}: {r.status_code}")
+        print(f"Error fetching {dept} {num}: {r.status_code} - {r.text}")
         return []
     data = r.json()
     if not data.get("ok"):

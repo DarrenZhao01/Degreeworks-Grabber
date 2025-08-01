@@ -1,3 +1,9 @@
+// Configuration for the backend API URL
+// IMPORTANT: In a real-world app, this would be injected via environment variables
+// during a build process (e.g., using Webpack, Vite, Create React App, etc.)
+// For local development, 'http://localhost:5000' is fine.
+const BACKEND_API_BASE_URL = 'http://127.0.0.1:5000';
+
 document.addEventListener('DOMContentLoaded', () => {
 
     const courseForm = document.getElementById('courseForm');
@@ -66,6 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 alertInstance.close();
             } else if (wrapper.firstChild) {
                  wrapper.firstChild.classList.remove('show');
+                 setTimeout(() => wrapper.remove(), 150);
+            } else {
+                 // Fallback: remove wrapper if firstChild is undefined
                  setTimeout(() => wrapper.remove(), 150);
             }
         }, 5000);
@@ -520,8 +529,8 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelOngoingSearch();
 
             try {
-                // Create EventSource for Server-Sent Events
-                const eventSource = new EventSource('/stream_process?' + new URLSearchParams({
+                        // Create EventSource for Server-Sent Events
+        const eventSource = new EventSource(`${BACKEND_API_BASE_URL}/stream_process?` + new URLSearchParams({
                     input_text: inputText,
                     year: year,
                     quarter: quarter
@@ -1064,7 +1073,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Make API call to build schedule
-            fetch('/build_schedule', {
+            fetch(`${BACKEND_API_BASE_URL}/build_schedule`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

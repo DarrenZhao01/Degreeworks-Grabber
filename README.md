@@ -54,6 +54,8 @@ Setting up is a breeze:
 
 4.  **View & Filter:** Explore the results! Use the tabs ("Available Only", "Unavailable Only", "Show All") to filter courses. Click on any course header to expand or collapse its details. Use the "Expand All" / "Collapse All" buttons to manage the view for the current tab.
 
+5. Run python -m http.server 8000 for frontend
+
 
 ## Requirements
 
