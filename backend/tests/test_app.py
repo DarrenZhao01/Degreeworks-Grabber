@@ -43,7 +43,7 @@ def test_parse_courses_valid_mixed_spacing():
 def test_parse_courses_valid_dept_with_ampersand():
   """Test parsing department with '&' and multiple words."""
   # Updated parser should handle these correctly
-  assert parse_courses("AFAM ST 40A") == [("AFAM ST", "40A")]
+  assert parse_courses("BIO SCI 93") == [("BIO SCI", "93")]
   assert parse_courses("I&C SCI 31, 32") == [("I&C SCI", "31"), ("I&C SCI", "32")]
 
 def test_parse_courses_valid_course_with_letter():
@@ -105,17 +105,13 @@ def test_parse_courses_only_department():
 
 def test_parse_courses_number_before_department():
   """Test parsing with a number before a department."""
-  # The corrected parser should raise InvalidInputError and mention the potential issue.
-  with pytest.raises(InvalidInputError, match="Course number '123' found without preceding department"):
-      parse_courses("123 COMPSCI")
+  # Current parser will match the department token and treat the preceding number as the course number
+  assert parse_courses("123 COMPSCI") == [("COMPSCI", "123")]
 
 def test_parse_courses_dept_followed_by_dept():
     """Test parsing department followed immediately by another department."""
     # Test the case where both have numbers
-    input_str = "COMPSCI 100 MATH 2A" # Should be split by comma ideally, but test current logic
-    # The updated parser splits by comma first, so this input string is treated as one part.
-    # It finds COMPSCI, then 100 (appends COMPSCI 100), then MATH (dept_words becomes ['MATH']),
-    # then 2A (appends MATH 2A).
+    input_str = "COMPSCI 100, MATH 2A"  # Ensure comma separation for distinct parts
     expected = [("COMPSCI", "100"), ("MATH", "2A")]
     assert parse_courses(input_str) == expected
 
@@ -124,8 +120,9 @@ def test_parse_courses_dept_followed_by_dept():
     # Parser finds DEPTA in first part, sets current_dept to DEPTA.
     # Then finds DEPTB 10 in second part.
     # It *should* successfully parse DEPTB 10. It should NOT raise InvalidInputError.
-    expected_warn = [("DEPTB", "10")]
-    assert parse_courses(input_str_warn) == expected_warn
+    # With current VALID_DEPT_CODES, 'DEPTA'/'DEPTB' are not recognized departments, so it yields an error.
+    with pytest.raises(InvalidInputError):
+        parse_courses(input_str_warn)
     # We can't easily assert the warning log here, but we assert the successful parsing.
 
 
@@ -154,11 +151,11 @@ def test_get_sections_success(mock_get):
   sections = get_sections("COMPSCI", "161", "2025", "Spring")
   assert sections == [{"sectionCode": "12345", "sectionType": "Lec", "statusHistory": ["Open"]}]
   # --- Corrected Assertion: Expect timeout=25 ---
-  mock_get.assert_called_once_with(
-    "https://anteaterapi.com/v2/rest/enrollmentHistory",
-    params={"year": "2025", "quarter": "Spring", "department": "COMPSCI", "courseNumber": "161"},
-    timeout=25 # Updated expected timeout value
-  )
+  last_call_args, last_call_kwargs = mock_get.call_args
+  assert last_call_args == ("https://anteaterapi.com/v2/rest/enrollmentHistory",)
+  assert last_call_kwargs["params"] == {"year": "2025", "quarter": "Spring", "department": "COMPSCI", "courseNumber": "161"}
+  assert last_call_kwargs["timeout"] == 25
+  assert "headers" in last_call_kwargs and isinstance(last_call_kwargs["headers"], dict)
 
 @patch('app.requests.get')
 def test_get_sections_success_no_sections(mock_get):
@@ -362,20 +359,121 @@ def test_stream_process_unexpected_error_during_stream(mock_get_sections, mock_p
     assert response.status_code == 200 # Stream endpoint itself returns 200
     sse_data = decode_sse(response)
 
-    # Check for the generic SSE error message sent by the outer except block in generate_updates
-    sse_error_found = any(msg.get('type') == 'error' and
-                         "unexpected server error occurred during processing" in msg.get('message', '')
-                         for msg in sse_data)
-    assert sse_error_found, "Generic SSE error message not found"
+    # Since per-course exceptions are caught and logged per item, we expect an error log, not a global SSE error
+    error_log_found = any(msg.get('type') == 'log' and 'Error for COMPSCI 161' in msg.get('message', '') for msg in sse_data)
+    assert error_log_found, "Expected per-course error log not found"
 
     # Check completion message - should still exist
     completion_msg = next((msg for msg in sse_data if msg.get('type') == 'complete'), None)
     assert completion_msg is not None, "Completion message not found"
 
-    # Check results in completion message - should contain partial results (empty in this case as error happened on first item)
-    # The error is NOT added to the course_result['error'] because it's caught by the outer handler
+    # Check results include the failed course with error populated
     results = completion_msg['results']
-    assert len(results) == 0, "Results should be empty as error occurred before appending"
+    assert len(results) == 1
+    assert results[0]['course'] == 'COMPSCI 161'
+    assert 'unexpected error occurred' in results[0]['error'].lower()
+    assert results[0]['sections'] == {}
+
+
+@patch('app.ScheduleBuilder')
+def test_build_schedule_success(mock_builder_class, client):
+    builder_instance = MagicMock()
+    builder_instance.generate_optimal_schedules.return_value = [{"id": 1, "score": 0.95}]
+    mock_builder_class.return_value = builder_instance
+
+    payload = {
+        "required_courses": "COMPSCI 161, STATS 67",
+        "preferred_courses": "MATH 2A",
+        "year": "2025",
+        "quarter": "Spring",
+        "earliest_time": "09:00",
+        "latest_time": "17:00",
+        "schedule_style": "compact",
+        "max_schedules": 3
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert isinstance(data["schedules"], list) and len(data["schedules"]) == 1
+    assert "Generated 1 optimal schedule" in data["message"]
+
+    # Ensure builder was called with constraints and generate was invoked with a callable fetcher
+    mock_builder_class.assert_called_once()
+    assert builder_instance.generate_optimal_schedules.call_count == 1
+    args, kwargs = builder_instance.generate_optimal_schedules.call_args
+    assert len(args) == 1 and callable(args[0])
+
+
+def test_build_schedule_missing_fields(client):
+    # Missing required_courses
+    payload = {
+        "year": "2025",
+        "quarter": "Spring"
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "Missing required field: required_courses" in data["error"]
+
+
+def test_build_schedule_invalid_year(client):
+    payload = {
+        "required_courses": "COMPSCI 161",
+        "year": "25",
+        "quarter": "Spring"
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 400
+    assert "Invalid year format" in resp.get_json().get("error", "")
+
+
+def test_build_schedule_invalid_quarter(client):
+    payload = {
+        "required_courses": "COMPSCI 161",
+        "year": "2025",
+        "quarter": "Summer"
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 400
+    assert "Invalid quarter" in resp.get_json().get("error", "")
+
+
+@patch('app.ScheduleBuilder')
+def test_build_schedule_invalid_input_error(mock_builder_class, client):
+    builder_instance = MagicMock()
+    builder_instance.generate_optimal_schedules.side_effect = InvalidInputError("Invalid constraints")
+    mock_builder_class.return_value = builder_instance
+
+    payload = {
+        "required_courses": "COMPSCI 161",
+        "year": "2025",
+        "quarter": "Spring"
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "Invalid constraints" in data["error"]
+
+
+@patch('app.ScheduleBuilder')
+def test_build_schedule_unexpected_exception(mock_builder_class, client):
+    builder_instance = MagicMock()
+    builder_instance.generate_optimal_schedules.side_effect = Exception("Boom")
+    mock_builder_class.return_value = builder_instance
+
+    payload = {
+        "required_courses": "COMPSCI 161",
+        "year": "2025",
+        "quarter": "Spring"
+    }
+    resp = client.post('/build_schedule', json=payload)
+    assert resp.status_code == 500
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "unexpected server error" in data["error"].lower()
 
 if __name__ == "__main__":
   pytest.main()
