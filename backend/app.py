@@ -47,7 +47,9 @@ def load_department_codes():
     """
     dept_codes = set()
     try:
-        with open('complete_departments_list.txt', 'r', encoding='utf-8') as f:
+        base_dir = os.path.dirname(__file__)
+        dept_file_path = os.path.join(base_dir, 'complete_departments_list.txt')
+        with open(dept_file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 if '|' in line and not line.startswith('Department Code'):
                     dept_code = line.split('|')[0].strip()
