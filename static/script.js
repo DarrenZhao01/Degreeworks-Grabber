@@ -54,12 +54,18 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         alertArea.appendChild(wrapper);
         setTimeout(() => {
-            const alertInstance = bootstrap.Alert.getInstance(wrapper.firstChild);
-            if (alertInstance) {
-                alertInstance.close();
-            } else if (wrapper.firstChild) {
-                 wrapper.firstChild.classList.remove('show');
-                 setTimeout(() => wrapper.remove(), 150);
+            const alertElement = wrapper.firstChild;
+            if (alertElement) {
+                const alertInstance = bootstrap.Alert.getInstance(alertElement);
+                if (alertInstance) {
+                    alertInstance.close();
+                } else {
+                    alertElement.classList.remove('show');
+                    setTimeout(() => wrapper.remove(), 150);
+                }
+            } else {
+                // Fallback: remove wrapper directly if firstChild is null
+                wrapper.remove();
             }
         }, 5000);
     }
@@ -463,8 +469,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelOngoingSearch();
 
             try {
+                // Dynamically determine the API base URL
+                const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                    ? '' // Use relative URLs for local development
+                    : ''; // Use relative URLs for production too - the server should handle routing
+                
                 // Create EventSource for Server-Sent Events
-                const eventSource = new EventSource('/stream_process?' + new URLSearchParams({
+                const eventSource = new EventSource(apiBaseUrl + '/stream_process?' + new URLSearchParams({
                     input_text: inputText,
                     year: year,
                     quarter: quarter
@@ -520,17 +531,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 eventSource.onerror = function(event) {
-                    eventSource.close();
-                    window.currentEventSource = null;
                     console.error('EventSource error:', event);
-                    showAlert('Connection error occurred. Please try again.', 'danger');
                     
-                    // Update UI to show error state
-                    progressLogDisplay.innerHTML = `
-                        <div class="alert alert-danger">
-                            <i class="fas fa-exclamation-circle me-2"></i>
-                            Connection error occurred. Please try again.
-                        </div>`;
+                    // Only show error if EventSource is still in connecting or open state
+                    if (eventSource.readyState !== EventSource.CLOSED) {
+                        eventSource.close();
+                        window.currentEventSource = null;
+                        
+                        showAlert('Connection error occurred. Please try again.', 'danger');
+                        
+                        // Update UI to show error state
+                        if (progressLogDisplay) {
+                            progressLogDisplay.innerHTML = `
+                                <div class="alert alert-danger">
+                                    <i class="fas fa-exclamation-circle me-2"></i>
+                                    Connection error occurred. Please try again.
+                                </div>`;
+                        }
+                    }
                 };
 
             } catch (error) {

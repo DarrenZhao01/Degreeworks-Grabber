@@ -618,12 +618,13 @@ def stream_process():
 
     except (InvalidInputError, ParsingError) as e:
         app.logger.error(f"Input/Validation Error before streaming: {e}", exc_info=True)
+        error_message = str(e)  # Capture the error message in a local variable
         if request.method == 'POST':
-            return jsonify({"type": "error", "message": str(e)}), 400
+            return jsonify({"type": "error", "message": error_message}), 400
         else:
             # For GET requests (EventSource), return SSE error format
             def error_generator():
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': error_message})}\n\n"
             return Response(error_generator(), mimetype='text/event-stream')
     except Exception as e:
         app.logger.error("Unexpected error during stream_process setup", exc_info=True)
