@@ -133,6 +133,7 @@ class ScheduleBuilder:
                         'course': course_name,
                         'code': section.get('sectionCode'),
                         'type': section.get('sectionType'),
+                        'section_num': section.get('sectionNum', ''),  # UCI section designation (A, B1, C2, etc.)
                         'instructor': ', '.join(section.get('instructors', [])) if section.get('instructors') else 'TBA',
                         'status': section.get('statusHistory', [])[-1] if section.get('statusHistory') else 'Unknown',
                         'meetings': meetings,
@@ -399,57 +400,78 @@ class ScheduleBuilder:
         # Group sections by their designation within each type
         sections_by_designation = self._group_sections_by_designation(sections)
         
-        # For each section designation, create complete combinations
-        for designation in section_designations:
-            if designation not in sections_by_designation:
-                continue
+        # Check if designations are properly paired (each has all required types)
+        designations_are_complete = True
+        if has_lecture and has_discussion:
+            # Check if each designation has both lectures and discussions
+            for designation in section_designations:
+                if designation in sections_by_designation:
+                    designation_sections = sections_by_designation[designation]
+                    designation_types = set(s['type'].upper() for s in designation_sections)
+                    if not ('LEC' in designation_types and 'DIS' in designation_types):
+                        designations_are_complete = False
+                        break
+        
+        # If designations are complete, use strict designation matching
+        # Otherwise, allow cross-designation combinations
+        if designations_are_complete:
+            logging.info("DEBUG: Designations are complete - using strict matching")
+            # For each section designation, create complete combinations
+            for designation in section_designations:
+                if designation not in sections_by_designation:
+                    continue
+                    
+                designation_sections = sections_by_designation[designation]
+                designation_by_type = defaultdict(list)
                 
-            designation_sections = sections_by_designation[designation]
-            designation_by_type = defaultdict(list)
-            
-            for section in designation_sections:
-                section_type = section['type'].upper()
-                designation_by_type[section_type].append(section)
-            
-            # Create combinations within this designation
-            if has_lecture and has_discussion:
-                # Course requires both lecture and discussion from same section
-                if 'LEC' in designation_by_type and 'DIS' in designation_by_type:
-                    for lecture in designation_by_type['LEC']:
-                        for discussion in designation_by_type['DIS']:
-                            combination = [lecture, discussion]
+                for section in designation_sections:
+                    section_type = section['type'].upper()
+                    designation_by_type[section_type].append(section)
+                
+                # Create combinations within this designation
+                if has_lecture and has_discussion:
+                    # Course requires both lecture and discussion from same section
+                    if 'LEC' in designation_by_type and 'DIS' in designation_by_type:
+                        for lecture in designation_by_type['LEC']:
+                            for discussion in designation_by_type['DIS']:
+                                combination = [lecture, discussion]
+                                
+                                # Add lab if available in this designation
+                                if has_lab and 'LAB' in designation_by_type:
+                                    for lab in designation_by_type['LAB']:
+                                        complete_combinations.append(combination + [lab])
+                                else:
+                                    complete_combinations.append(combination)
+                                
+                elif has_lecture:
+                    # Lecture-only course
+                    if 'LEC' in designation_by_type:
+                        for lecture in designation_by_type['LEC']:
+                            combination = [lecture]
                             
-                            # Add lab if available in this designation
+                            # Add lab if available in this designation  
                             if has_lab and 'LAB' in designation_by_type:
                                 for lab in designation_by_type['LAB']:
                                     complete_combinations.append(combination + [lab])
                             else:
                                 complete_combinations.append(combination)
-                            
-            elif has_lecture:
-                # Lecture-only course
-                if 'LEC' in designation_by_type:
-                    for lecture in designation_by_type['LEC']:
-                        combination = [lecture]
-                        
-                        # Add lab if available in this designation  
-                        if has_lab and 'LAB' in designation_by_type:
-                            for lab in designation_by_type['LAB']:
-                                complete_combinations.append(combination + [lab])
-                        else:
-                            complete_combinations.append(combination)
-                            
-            elif has_discussion:
-                # Discussion-only course (rare, but possible)
-                if 'DIS' in designation_by_type:
-                    for discussion in designation_by_type['DIS']:
-                        complete_combinations.append([discussion])
-            
-            else:
-                # Other section types (seminars, etc.) - treat each as standalone
-                for section_type, type_sections in designation_by_type.items():
-                    for section in type_sections:
-                        complete_combinations.append([section])
+                                
+                elif has_discussion:
+                    # Discussion-only course (rare, but possible)
+                    if 'DIS' in designation_by_type:
+                        for discussion in designation_by_type['DIS']:
+                            complete_combinations.append([discussion])
+                
+                else:
+                    # Other section types (seminars, etc.) - treat each as standalone
+                    for section_type, type_sections in designation_by_type.items():
+                        for section in type_sections:
+                            complete_combinations.append([section])
+        else:
+            # Designations are not complete - allow cross-designation combinations
+            logging.info("DEBUG: Designations are NOT complete - allowing cross-designation combinations")
+            # Fall back to legacy logic that allows any lecture with any discussion
+            return self._get_legacy_course_combinations(sections_by_type, has_lecture, has_discussion, has_lab)
         
         # If no designations were found, fall back to the old logic but log a warning
         if not section_designations:
@@ -476,7 +498,20 @@ class ScheduleBuilder:
         
         logging.info(f"DEBUG: Extracting designation for {course_name} {section_type} - Code: {section_code}, Instructor: {instructor}")
         
-        # Method 1: Check if there's an obvious section letter in meeting info or other fields
+        # Method 1 (HIGHEST PRIORITY): Use the sectionNum field from the API
+        # This is the actual section designation used by UCI (e.g., "A", "B1", "C2")
+        # For lectures, this will be a single letter (A, B, C)
+        # For discussions/labs, this will be letter + number (A1, B2, C3)
+        section_num = section.get('section_num', '')
+        if section_num:
+            # Extract just the letter part for grouping (A1 -> A, B2 -> B, C -> C)
+            letter_match = re.match(r'^([A-Z])', section_num.upper())
+            if letter_match:
+                designation = letter_match.group(1)
+                logging.info(f"DEBUG: Found designation '{designation}' from sectionNum '{section_num}'")
+                return designation
+        
+        # Method 2: Check if there's an obvious section letter in meeting info or other fields
         # Look for patterns that suggest section groupings
         meetings = section.get('meetings', [])
         if meetings:
@@ -493,7 +528,7 @@ class ScheduleBuilder:
                             logging.info(f"DEBUG: Found designation '{potential_designation}' from location")
                             return potential_designation
         
-        # Method 2: Look for letter/number patterns in section code
+        # Method 3: Look for letter/number patterns in section code
         if section_code:
             # Try multiple patterns that might indicate section designations
             patterns = [
@@ -510,7 +545,7 @@ class ScheduleBuilder:
                         logging.info(f"DEBUG: Found designation '{designation}' from section code pattern")
                         return designation
         
-        # Method 3: Use instructor-based grouping for sections of the same course
+        # Method 4: Use instructor-based grouping for sections of the same course
         # This is particularly useful when the same instructor teaches both lecture and discussion
         if instructor and instructor != 'TBA':
             # Split instructor names and use last name + first initial for consistency
@@ -523,7 +558,7 @@ class ScheduleBuilder:
                 logging.info(f"DEBUG: Using instructor-based designation '{designation}' for {instructor}")
                 return designation
         
-        # Method 4: Fallback - create a designation based on section type and position
+        # Method 5: Fallback - create a designation based on section type and position
         # This ensures different section types get different designations when no other info is available
         type_char = section_type[0] if section_type else 'A'
         logging.info(f"DEBUG: Using fallback designation '{type_char}' based on section type")
